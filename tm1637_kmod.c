@@ -39,6 +39,8 @@
 
 #define	TM1637_MAX_COLOM	4
 
+static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
+
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
@@ -206,6 +208,23 @@ tm1637_display_clear(device_t dev)
 	tm1637_display_segments(dev, blank);
 }
 
+static void
+tm1637_decode_string(u_char* s, u_char* d)
+{
+	int ic, id = 0;
+
+	// Number of digits + 1 for a colon, if any
+	for(ic=0; ic<=TM1637_MAX_COLOM; ic++)
+	{
+	    unsigned char c = s[ic];
+	    if(c>=0x30 && c<=0x39)
+		d[id++] = char_code[c&0x0f];
+	    else
+		if(ic==2 && c==':')
+		    d[1]|= 0x80;
+	}
+}
+
 static int
 tm1637_setup_hinted_pins(struct tm1637_softc *sc)
 {
@@ -369,11 +388,20 @@ tm1637_write(struct cdev *dev __unused, struct uio *uio, int ioflag __unused)
 	tm1637_msg->text[tm1637_msg->len] = 0;
 
 	if (error != 0)
-		uprintf("Write failed: bad address!\n");
+	    uprintf("Write failed: bad address!\n");
 
-	u_char a[] = {0x7f, 0x6f, 0x33, 0x03};
-	for (int i=0; i<sizeof(a); i++)
-	  sc->tm1637_digits[i] = a[i];
+/*
+	for(ic=0; ic<TM1637_MAX_COLOM; ic++)
+	{
+	    u_char c = tm1637_msg->text[ic];
+	    if(c>=0x30 && c<=0x39)
+		sc->tm1637_digits[id++] = char_code[c&0x0f];
+	    else
+		if(ic==1 && c==':')
+		    sc->tm1637_digits[id]|= 0x80;
+	}
+*/
+	tm1637_decode_string(tm1637_msg->text, sc->tm1637_digits);
 	tm1637_display_segments(sc->tm1637_dev, sc->tm1637_digits);
 
 	return (error);
