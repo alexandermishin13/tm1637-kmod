@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/module.h>
 #include <sys/systm.h>  /* uprintf */
+#include <sys/sysctl.h>
 #include <sys/conf.h>   /* cdevsw struct */
 #include <sys/param.h>  /* defines used in kernel.h */
 #include <sys/kernel.h> /* types used in module initialization */
@@ -44,6 +45,8 @@ static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
+
+static void tm1637_display_on(device_t);
 
 struct tm1637_softc {
 	device_t		 tm1637_dev;
@@ -107,6 +110,30 @@ tm1637_setup_fdt_pins(struct tm1637_softc *sc)
 }
 #endif /* FDT */
 
+static int
+tm1637_brightness_sysctl(SYSCTL_HANDLER_ARGS)
+{
+	struct tm1637_softc *sc = arg1;
+	uint8_t brightness = sc->tm1637_brightness;
+	int error;
+
+	error = SYSCTL_OUT(req, &brightness, sizeof(brightness));
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+
+	error = SYSCTL_IN(req, &brightness, sizeof(brightness));
+	if (error != 0)
+		return (error);
+
+	if (brightness > 7)
+		return (EINVAL);
+
+	sc->tm1637_brightness = brightness;
+	tm1637_display_on(sc->tm1637_dev);
+
+	return (0);
+}
+
 static void
 tm1637_gpio_start(device_t dev)
 {
@@ -117,8 +144,9 @@ tm1637_gpio_start(device_t dev)
 
 	gpio_pin_set_active(sc->tm1637_sclpin, true);
 	gpio_pin_set_active(sc->tm1637_sdapin, true);
+	DELAY(2);
 	gpio_pin_set_active(sc->tm1637_sdapin, false);
-	gpio_pin_set_active(sc->tm1637_sclpin, false);
+//	gpio_pin_set_active(sc->tm1637_sclpin, false);
 }
 
 static void
@@ -132,31 +160,28 @@ tm1637_gpio_sendbyte(device_t dev, u_char data)
 
 	for(i=0; i<=7; i++)
 	{
+		gpio_pin_set_active(sc->tm1637_sclpin, false);
 		// Set the data bit, CLK is low after start
 		gpio_pin_set_active(sc->tm1637_sdapin, (bool)(data&(1<<i))); //LSB first
 		// The data bit is ready
 		gpio_pin_set_active(sc->tm1637_sclpin, true);
-		gpio_pin_set_active(sc->tm1637_sclpin, false);
 	}
+	gpio_pin_set_active(sc->tm1637_sclpin, false);
+	DELAY(5);
 	// Waiting a zero data bit as an ACK
 	gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_INPUT);
-	gpio_pin_set_active(sc->tm1637_sclpin, true);
 
 	do {
 		gpio_pin_is_active(sc->tm1637_sdapin, &noack);
 		if (k++ < TM1637_ACK_TIMEOUT)
 			break;
-		DELAY(1);
+		DELAY(2);
 	} while (noack);
 
-	gpio_pin_set_active(sc->tm1637_sclpin, false);
+	gpio_pin_set_active(sc->tm1637_sclpin, true);
+	DELAY(2);
 	gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
-}
-
-static void
-tm1637_gpio_send(device_t dev)
-{
-//	struct tm1637_softc *sc = device_get_softc(dev);
+	gpio_pin_set_active(sc->tm1637_sclpin, false);
 }
 
 static void
@@ -165,9 +190,19 @@ tm1637_gpio_stop(device_t dev)
 	struct tm1637_softc *sc = device_get_softc(dev);
 
 	gpio_pin_set_active(sc->tm1637_sdapin, false);
+	DELAY(2);
 	gpio_pin_set_active(sc->tm1637_sclpin, false);
+	DELAY(2);
 	gpio_pin_set_active(sc->tm1637_sclpin, true);
+	DELAY(2);
 	gpio_pin_set_active(sc->tm1637_sdapin, true);
+}
+
+static void
+tm1637_set_clockpoint(device_t dev, bool value)
+{
+	struct tm1637_softc *sc = device_get_softc(dev);
+	sc->tm1637_colon = value;
 }
 
 /*
@@ -211,6 +246,7 @@ tm1637_display_digits(device_t dev)
 	tm1637_gpio_stop(sc->tm1637_dev); // Stop a byte sequence
 }
 
+// Writes all blanks to a display
 static void
 tm1637_display_clear(device_t dev)
 {
@@ -221,9 +257,9 @@ tm1637_display_clear(device_t dev)
 	tm1637_display_digits(dev);
 }
 
-// Set a display brightness from softc
+// Sets a display on with a brightness value from softc
 static void
-tm1637_display_brightness(device_t dev)
+tm1637_display_on(device_t dev)
 {
 	struct tm1637_softc *sc = device_get_softc(dev);
 
@@ -232,20 +268,45 @@ tm1637_display_brightness(device_t dev)
 	tm1637_gpio_stop(sc->tm1637_dev); // Stop a byte
 }
 
+// Set a display brightness from softc
 static void
-tm1637_decode_string(u_char* s, u_char* d)
+tm1637_display_off(device_t dev)
+{
+	struct tm1637_softc *sc = device_get_softc(dev);
+
+	tm1637_gpio_start(sc->tm1637_dev); // Start a byte
+	tm1637_gpio_sendbyte(sc->tm1637_dev, 0x80);
+	tm1637_gpio_stop(sc->tm1637_dev); // Stop a byte
+}
+
+static void
+tm1637_decode_string(device_t dev, u_char* s)
 {
 	int ic, id = 0;
+	struct tm1637_softc *sc = device_get_softc(dev);
 
 	// Number of digits + 1 for a colon, if any
 	for(ic=0; ic<=TM1637_MAX_COLOM; ic++)
 	{
 	    unsigned char c = s[ic];
-	    if(c>=0x30 && c<=0x39)
-		d[id++] = char_code[c&0x0f];
+	    if(c>='0' && c<='9')
+		sc->tm1637_digits[id++] = char_code[c&0x0f];
+	    else if (c==' ')
+		sc->tm1637_digits[id++] = 0x00;
+	    else if(ic==2)
+	    {
+		switch(c)
+		{
+		    case ':':
+			sc->tm1637_colon = true;
+			break;
+		    default:
+			sc->tm1637_colon = false;
+			break;
+		}
+	    }
 	    else
-		if(ic==2 && c==':')
-		    d[1]|= 0x80;
+		sc->tm1637_digits[id++] = 0x00;
 	}
 }
 
@@ -425,7 +486,7 @@ tm1637_write(struct cdev *dev __unused, struct uio *uio, int ioflag __unused)
 		    sc->tm1637_digits[id]|= 0x80;
 	}
 */
-	tm1637_decode_string(tm1637_msg->text, sc->tm1637_digits);
+	tm1637_decode_string(sc->tm1637_dev, tm1637_msg->text);
 	tm1637_display_digits(sc->tm1637_dev);
 
 	return (error);
@@ -472,6 +533,7 @@ tm1637_detach(device_t dev)
 	int err;
 
 	tm1637_display_clear(dev);
+	tm1637_display_off(dev);
 
 	if ((err = bus_generic_detach(dev)) != 0)
 		return (err);
@@ -485,9 +547,14 @@ static int
 tm1637_attach(device_t dev)
 {
 	struct tm1637_softc	*sc;
+	struct sysctl_ctx_list	*ctx;
+	struct sysctl_oid	*tree;
 	int err;
 
 	sc = device_get_softc(dev);
+	ctx = device_get_sysctl_ctx(dev);
+	tree = device_get_sysctl_tree(dev);
+
 	sc->tm1637_dev = dev;
 
 	/* Acquire our gpio pins. */
@@ -527,10 +594,14 @@ tm1637_attach(device_t dev)
 	sc->tm1637_colon = false;
 	sc->tm1637_cdev->si_drv1 = sc;
 
+	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
+	    "brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	    &tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
+
 	tm1637_msg = malloc(sizeof(*tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
 
 	tm1637_display_clear(dev);
-	tm1637_display_brightness(dev);
+	tm1637_display_on(dev);
 
 	return (bus_generic_attach(dev));
 }
