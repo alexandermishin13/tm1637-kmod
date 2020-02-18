@@ -51,12 +51,14 @@ struct tm1637_softc {
 	gpio_pin_t		 tm1637_sclpin;
 	gpio_pin_t		 tm1637_sdapin;
 	uint8_t			 tm1637_brightness;
+	uint8_t			 tm1637_on;
 	bool			 tm1637_colon;
 	u_char			 tm1637_digits[TM1637_MAX_COLOM];
 	struct cdev		*tm1637_cdev;
 };
 
 static void tm1637_display_on(struct tm1637_softc *sc);
+static void tm1637_display_off(struct tm1637_softc *sc);
 
 #ifdef FDT
 #include <dev/ofw/ofw_bus.h>
@@ -132,6 +134,36 @@ tm1637_brightness_sysctl(SYSCTL_HANDLER_ARGS)
 	tm1637_display_on(sc);
 
 	return (0);
+}
+
+static int
+tm1637_set_on_sysctl(SYSCTL_HANDLER_ARGS)
+{
+	struct tm1637_softc *sc = arg1;
+	uint8_t is_on = sc->tm1637_on;
+	int error = 0;
+
+	error = SYSCTL_OUT(req, &is_on, sizeof(is_on));
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+
+	error = SYSCTL_IN(req, &is_on, sizeof(is_on));
+	if (error != 0)
+		return (error);
+
+	switch(is_on)
+	{
+	    case 0:
+		tm1637_display_off(sc);
+		break;
+	    case 1:
+		tm1637_display_on(sc);
+		break;
+	    default:
+		error = EINVAL;
+	}
+
+	return (error);
 }
 
 /*
@@ -242,7 +274,9 @@ tm1637_display_digits(struct tm1637_softc *sc)
 	tm1637_gpio_stop(sc); // Stop a byte sequence
 }
 
-// Writes all blanks to a display
+/*
+ * Writes all blanks to a display
+ */
 static void
 tm1637_display_clear(struct tm1637_softc *sc)
 {
@@ -251,19 +285,25 @@ tm1637_display_clear(struct tm1637_softc *sc)
 	tm1637_display_digits(sc);
 }
 
-// Sets a display on with a brightness value from softc
+/*
+ * Sets a display on with a brightness value from softc
+ */
 static void
 tm1637_display_on(struct tm1637_softc *sc)
 {
+	sc->tm1637_on = 1;
 	tm1637_gpio_start(sc); // Start a byte
 	tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
 	tm1637_gpio_stop(sc); // Stop a byte
 }
 
-// Set a display brightness from softc
+/*
+ * Set a display off
+ */
 static void
 tm1637_display_off(struct tm1637_softc *sc)
 {
+	sc->tm1637_on = 0;
 	tm1637_gpio_start(sc); // Start a byte
 	tm1637_gpio_sendbyte(sc, 0x80);
 	tm1637_gpio_stop(sc); // Stop a byte
@@ -586,6 +626,10 @@ tm1637_attach(device_t dev)
 	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
 	    "brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	    &tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
+
+	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
+	    "is_on", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	    &tm1637_set_on_sysctl, "CU", "display is on:1 or off:0");
 
 	tm1637_msg = malloc(sizeof(*tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
 
