@@ -9,6 +9,10 @@ make depend
 make
 make install
 ```
+Now You can load the module:
+```
+kldload tm1637
+```
 
 ## Usage
 

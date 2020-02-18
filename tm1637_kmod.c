@@ -46,8 +46,6 @@ static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
 
-static void tm1637_display_on(device_t);
-
 struct tm1637_softc {
 	device_t		 tm1637_dev;
 	gpio_pin_t		 tm1637_sclpin;
@@ -57,6 +55,8 @@ struct tm1637_softc {
 	u_char			 tm1637_digits[TM1637_MAX_COLOM];
 	struct cdev		*tm1637_cdev;
 };
+
+static void tm1637_display_on(struct tm1637_softc *sc);
 
 #ifdef FDT
 #include <dev/ofw/ofw_bus.h>
@@ -129,16 +129,17 @@ tm1637_brightness_sysctl(SYSCTL_HANDLER_ARGS)
 		return (EINVAL);
 
 	sc->tm1637_brightness = brightness;
-	tm1637_display_on(sc->tm1637_dev);
+	tm1637_display_on(sc);
 
 	return (0);
 }
 
+/*
+ * Start command or data transmission
+ */
 static void
-tm1637_gpio_start(device_t dev)
+tm1637_gpio_start(struct tm1637_softc *sc)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-
 	gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
 	gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
 
@@ -150,13 +151,11 @@ tm1637_gpio_start(device_t dev)
 }
 
 static void
-tm1637_gpio_sendbyte(device_t dev, u_char data)
+tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 {
 	int i;
 	int k = 0;
 	bool noack;
-
-	struct tm1637_softc *sc = device_get_softc(dev);
 
 	for(i=0; i<=7; i++)
 	{
@@ -184,11 +183,12 @@ tm1637_gpio_sendbyte(device_t dev, u_char data)
 	gpio_pin_set_active(sc->tm1637_sclpin, false);
 }
 
+/*
+ * Stop command or data transmission
+ */
 static void
-tm1637_gpio_stop(device_t dev)
+tm1637_gpio_stop(struct tm1637_softc *sc)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-
 	gpio_pin_set_active(sc->tm1637_sdapin, false);
 	DELAY(2);
 	gpio_pin_set_active(sc->tm1637_sclpin, false);
@@ -199,9 +199,8 @@ tm1637_gpio_stop(device_t dev)
 }
 
 static void
-tm1637_set_clockpoint(device_t dev, bool value)
+tm1637_set_clockpoint(struct tm1637_softc *sc, bool value)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
 	sc->tm1637_colon = value;
 }
 
@@ -209,81 +208,71 @@ tm1637_set_clockpoint(device_t dev, bool value)
  * Send to display a given digit (3 bytes will be sended)
  */
 static void
-tm1637_display_digit(device_t dev, uint8_t position)
+tm1637_display_digit(struct tm1637_softc *sc, uint8_t position)
 {
 	if (position >= TM1637_MAX_COLOM)
 	  return;
 
-	struct tm1637_softc *sc = device_get_softc(dev);
+	tm1637_gpio_start(sc); // Start a byte
+	tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send an address autoincrement command to tm1637
+	tm1637_gpio_stop(sc);  // Stop a byte
 
-	tm1637_gpio_start(sc->tm1637_dev); // Start a byte
-	tm1637_gpio_sendbyte(sc->tm1637_dev, TM1637_ADDRESS_FIXED); // Send an address autoincrement command to tm1637
-	tm1637_gpio_stop(sc->tm1637_dev);  // Stop a byte
-
-	tm1637_gpio_start(sc->tm1637_dev); // Start a byte sequence
-	tm1637_gpio_sendbyte(sc->tm1637_dev, TM1637_START_ADDRESS|position); // Send a start address to tm1637
-	tm1637_gpio_sendbyte(sc->tm1637_dev, sc->tm1637_digits[position]); // Send colom segments to tm1637
-	tm1637_gpio_stop(sc->tm1637_dev); // Stop a byte sequence
+	tm1637_gpio_start(sc); // Start a byte sequence
+	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS|position); // Send a start address to tm1637
+	tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
+	tm1637_gpio_stop(sc); // Stop a byte sequence
 }
 
 /*
  * Send to display all 4 digits (6 bytes will be sended)
  */
 static void
-tm1637_display_digits(device_t dev)
+tm1637_display_digits(struct tm1637_softc *sc)
 {
 	int position;
-	struct tm1637_softc *sc = device_get_softc(dev);
 
-	tm1637_gpio_start(sc->tm1637_dev); // Start a byte
-	tm1637_gpio_sendbyte(sc->tm1637_dev, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
-	tm1637_gpio_stop(sc->tm1637_dev);  // Stop a byte
+	tm1637_gpio_start(sc); // Start a byte
+	tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
+	tm1637_gpio_stop(sc);  // Stop a byte
 
-	tm1637_gpio_start(sc->tm1637_dev); // Start a byte sequence
-	tm1637_gpio_sendbyte(sc->tm1637_dev, TM1637_START_ADDRESS); // Send a start address to tm1637
+	tm1637_gpio_start(sc); // Start a byte sequence
+	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS); // Send a start address to tm1637
 	for(position=0; position<TM1637_MAX_COLOM; position++)
-		tm1637_gpio_sendbyte(sc->tm1637_dev, sc->tm1637_digits[position]); // Send colom segments to tm1637
-	tm1637_gpio_stop(sc->tm1637_dev); // Stop a byte sequence
+		tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
+	tm1637_gpio_stop(sc); // Stop a byte sequence
 }
 
 // Writes all blanks to a display
 static void
-tm1637_display_clear(device_t dev)
+tm1637_display_clear(struct tm1637_softc *sc)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-
 	// Display all zeros
 	memset(sc->tm1637_digits, 0x00, sizeof(sc->tm1637_digits));
-	tm1637_display_digits(dev);
+	tm1637_display_digits(sc);
 }
 
 // Sets a display on with a brightness value from softc
 static void
-tm1637_display_on(device_t dev)
+tm1637_display_on(struct tm1637_softc *sc)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-
-	tm1637_gpio_start(sc->tm1637_dev); // Start a byte
-	tm1637_gpio_sendbyte(sc->tm1637_dev, 0x88|sc->tm1637_brightness);
-	tm1637_gpio_stop(sc->tm1637_dev); // Stop a byte
+	tm1637_gpio_start(sc); // Start a byte
+	tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
+	tm1637_gpio_stop(sc); // Stop a byte
 }
 
 // Set a display brightness from softc
 static void
-tm1637_display_off(device_t dev)
+tm1637_display_off(struct tm1637_softc *sc)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-
-	tm1637_gpio_start(sc->tm1637_dev); // Start a byte
-	tm1637_gpio_sendbyte(sc->tm1637_dev, 0x80);
-	tm1637_gpio_stop(sc->tm1637_dev); // Stop a byte
+	tm1637_gpio_start(sc); // Start a byte
+	tm1637_gpio_sendbyte(sc, 0x80);
+	tm1637_gpio_stop(sc); // Stop a byte
 }
 
 static void
-tm1637_decode_string(device_t dev, u_char* s)
+tm1637_decode_string(struct tm1637_softc *sc, u_char* s)
 {
 	int ic, id = 0;
-	struct tm1637_softc *sc = device_get_softc(dev);
 
 	// Number of digits + 1 for a colon, if any
 	for(ic=0; ic<=TM1637_MAX_COLOM; ic++)
@@ -408,7 +397,7 @@ static struct cdevsw tm1637_cdevsw = {
 };
 
 static int
-tm1637_open(struct cdev *dev __unused, int oflags __unused, int devtype __unused,
+tm1637_open(struct cdev *tm1637_cdev __unused, int oflags __unused, int devtype __unused,
     struct thread *td __unused)
 {
     int error = 0;
@@ -418,7 +407,7 @@ tm1637_open(struct cdev *dev __unused, int oflags __unused, int devtype __unused
 }
 
 static int
-tm1637_close(struct cdev *dev __unused, int fflag __unused, int devtype __unused,
+tm1637_close(struct cdev *tm1637_cdev __unused, int fflag __unused, int devtype __unused,
     struct thread *td __unused)
 {
 
@@ -427,7 +416,7 @@ tm1637_close(struct cdev *dev __unused, int fflag __unused, int devtype __unused
 }
 
 static int
-tm1637_read(struct cdev *dev __unused, struct uio *uio, int ioflag __unused)
+tm1637_read(struct cdev *tm1637_cdev __unused, struct uio *uio, int ioflag __unused)
 {
     int error;
     size_t amount;
@@ -444,13 +433,13 @@ tm1637_read(struct cdev *dev __unused, struct uio *uio, int ioflag __unused)
 }
 
 static int
-tm1637_write(struct cdev *dev __unused, struct uio *uio, int ioflag __unused)
+tm1637_write(struct cdev *tm1637_cdev __unused, struct uio *uio, int ioflag __unused)
 {
 	int error;
 	size_t amount;
 	struct tm1637_softc *sc;
 
-	sc = dev->si_drv1; // Stored here on tm1637_attach()
+	sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
 
 	/*
 	 * We either write from the beginning or are appending -- do
@@ -486,8 +475,8 @@ tm1637_write(struct cdev *dev __unused, struct uio *uio, int ioflag __unused)
 		    sc->tm1637_digits[id]|= 0x80;
 	}
 */
-	tm1637_decode_string(sc->tm1637_dev, tm1637_msg->text);
-	tm1637_display_digits(sc->tm1637_dev);
+	tm1637_decode_string(sc, tm1637_msg->text);
+	tm1637_display_digits(sc);
 
 	return (error);
 }
@@ -532,8 +521,8 @@ tm1637_detach(device_t dev)
 	struct tm1637_softc *sc = device_get_softc(dev);
 	int err;
 
-	tm1637_display_clear(dev);
-	tm1637_display_off(dev);
+	tm1637_display_clear(sc);
+	tm1637_display_off(sc);
 
 	if ((err = bus_generic_detach(dev)) != 0)
 		return (err);
@@ -600,8 +589,8 @@ tm1637_attach(device_t dev)
 
 	tm1637_msg = malloc(sizeof(*tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
 
-	tm1637_display_clear(dev);
-	tm1637_display_on(dev);
+	tm1637_display_clear(sc);
+	tm1637_display_on(sc);
 
 	return (bus_generic_attach(dev));
 }
