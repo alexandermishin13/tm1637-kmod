@@ -52,6 +52,7 @@ struct tm1637_softc {
 	gpio_pin_t		 tm1637_sdapin;
 	uint8_t			 tm1637_brightness;
 	uint8_t			 tm1637_on;
+	uint8_t			 tm1637_raw_format;
 	bool			 tm1637_colon;
 	u_char			 tm1637_digits[TM1637_MAX_COLOM];
 	struct cdev		*tm1637_cdev;
@@ -140,24 +141,54 @@ static int
 tm1637_set_on_sysctl(SYSCTL_HANDLER_ARGS)
 {
 	struct tm1637_softc *sc = arg1;
-	uint8_t is_on = sc->tm1637_on;
+	uint8_t _on = sc->tm1637_on;
 	int error = 0;
 
-	error = SYSCTL_OUT(req, &is_on, sizeof(is_on));
+	error = SYSCTL_OUT(req, &_on, sizeof(_on));
 	if (error != 0 || req->newptr == NULL)
 		return (error);
 
-	error = SYSCTL_IN(req, &is_on, sizeof(is_on));
+	error = SYSCTL_IN(req, &_on, sizeof(_on));
 	if (error != 0)
 		return (error);
 
-	switch(is_on)
+	switch(_on)
 	{
 	    case 0:
 		tm1637_display_off(sc);
 		break;
 	    case 1:
 		tm1637_display_on(sc);
+		break;
+	    default:
+		error = EINVAL;
+	}
+
+	return (error);
+}
+
+static int
+tm1637_raw_format_sysctl(SYSCTL_HANDLER_ARGS)
+{
+	struct tm1637_softc *sc = arg1;
+	uint8_t _raw = sc->tm1637_raw_format;
+	int error = 0;
+
+	error = SYSCTL_OUT(req, &_raw, sizeof(_raw));
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+
+	error = SYSCTL_IN(req, &_raw, sizeof(_raw));
+	if (error != 0)
+		return (error);
+
+	switch(_raw)
+	{
+	    case 0:
+//		tm1637_display_off(sc);
+		break;
+	    case 1:
+//		tm1637_display_on(sc);
 		break;
 	    default:
 		error = EINVAL;
@@ -251,6 +282,15 @@ tm1637_display_digit(struct tm1637_softc *sc, uint8_t position)
 
 	tm1637_gpio_start(sc); // Start a byte sequence
 	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS|position); // Send a start address to tm1637
+
+	if (position == 1)
+	{
+	    if(sc->tm1637_colon)
+		sc->tm1637_digits[1] |= 0x80;
+	    else
+		sc->tm1637_digits[1] &= 0x7f;
+	}
+
 	tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
 	tm1637_gpio_stop(sc); // Stop a byte sequence
 }
@@ -269,6 +309,12 @@ tm1637_display_digits(struct tm1637_softc *sc)
 
 	tm1637_gpio_start(sc); // Start a byte sequence
 	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS); // Send a start address to tm1637
+
+	if (sc->tm1637_colon)
+		sc->tm1637_digits[1] |= 0x80;
+	else
+		sc->tm1637_digits[1] &= 0x7f;
+
 	for(position=0; position<TM1637_MAX_COLOM; position++)
 		tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
 	tm1637_gpio_stop(sc); // Stop a byte sequence
@@ -320,8 +366,6 @@ tm1637_decode_string(struct tm1637_softc *sc, u_char* s)
 	    unsigned char c = s[ic];
 	    if(c>='0' && c<='9')
 		sc->tm1637_digits[id++] = char_code[c&0x0f];
-	    else if (c==' ')
-		sc->tm1637_digits[id++] = 0x00;
 	    else if(ic==2)
 	    {
 		switch(c)
@@ -329,7 +373,7 @@ tm1637_decode_string(struct tm1637_softc *sc, u_char* s)
 		    case ':':
 			sc->tm1637_colon = true;
 			break;
-		    default:
+		    case ' ':
 			sc->tm1637_colon = false;
 			break;
 		}
@@ -504,17 +548,6 @@ tm1637_write(struct cdev *tm1637_cdev __unused, struct uio *uio, int ioflag __un
 	if (error != 0)
 	    uprintf("Write failed: bad address!\n");
 
-/*
-	for(ic=0; ic<TM1637_MAX_COLOM; ic++)
-	{
-	    u_char c = tm1637_msg->text[ic];
-	    if(c>=0x30 && c<=0x39)
-		sc->tm1637_digits[id++] = char_code[c&0x0f];
-	    else
-		if(ic==1 && c==':')
-		    sc->tm1637_digits[id]|= 0x80;
-	}
-*/
 	tm1637_decode_string(sc, tm1637_msg->text);
 	tm1637_display_digits(sc);
 
@@ -628,8 +661,12 @@ tm1637_attach(device_t dev)
 	    &tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
 
 	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	    "is_on", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
-	    &tm1637_set_on_sysctl, "CU", "display is on:1 or off:0");
+	    "on", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	    &tm1637_set_on_sysctl, "CU", "display is on or off");
+
+	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
+	    "raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	    &tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
 
 	tm1637_msg = malloc(sizeof(*tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
 

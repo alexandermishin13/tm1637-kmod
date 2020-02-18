@@ -31,8 +31,8 @@ sysctl dev.tm1637.0.brightness=7
 
 ## Bugs
 
-* A clockpoint has just been broken (or not yet implemented). I'm looking for a good idea about an input format;
 * You need to close the device before sending a new string (I think so. I didn't check it out)
+* An input overflow makes kldunload impossible.
 
 ## Status
 
