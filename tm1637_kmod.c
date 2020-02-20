@@ -19,8 +19,6 @@
 
 #include <dev/gpio/gpiobusvar.h>
 
-#define BUFFERSIZE 6
-
 #define	TM1637_CDEV_NAME	"tm1637"
 #define	TM1637_SCL_PROPERTY	"scl-gpios"
 #define	TM1637_SDA_PROPERTY	"sda-gpios"
@@ -39,12 +37,19 @@
 #define	TM1637_BRIGHTEST	7
 
 #define	TM1637_MAX_COLOM	4
+#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2 // For ':' and '\0'
+
 
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
+
+struct s_message {
+	char text[TM1637_BUFFERSIZE + 1];
+	int len;
+};
 
 struct tm1637_softc {
 	device_t		 tm1637_dev;
@@ -56,6 +61,7 @@ struct tm1637_softc {
 	bool			 tm1637_colon;
 	u_char			 tm1637_digits[TM1637_MAX_COLOM];
 	struct cdev		*tm1637_cdev;
+	struct s_message	*tm1637_msg;
 };
 
 static void tm1637_display_on(struct tm1637_softc *sc);
@@ -458,14 +464,9 @@ static d_close_t     tm1637_close;
 static d_read_t      tm1637_read;
 static d_write_t     tm1637_write;
 
-struct s_message {
-    char text[BUFFERSIZE + 1];
-    int len;
-};
-
 /* vars */
 //static struct cdev *tm1637_dev;
-static struct s_message *tm1637_msg;
+//static struct s_message *tm1637_msg;
 
 MALLOC_DECLARE(M_TM1637BUF);
 MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "buffer for tm1637 module");
@@ -500,56 +501,56 @@ tm1637_close(struct cdev *tm1637_cdev __unused, int fflag __unused, int devtype 
 }
 
 static int
-tm1637_read(struct cdev *tm1637_cdev __unused, struct uio *uio, int ioflag __unused)
-{
-    int error;
-    size_t amount;
-
-    size_t text_len = tm1637_msg->len + 1;
-    amount = MIN(uio->uio_resid, 
-                 uio->uio_offset >= text_len ? 0 : text_len - uio->uio_offset);
-
-    if ((error = uiomove(tm1637_msg->text, amount, uio)) != 0)
-	uprintf("uiomove failed!\n");
-
-    error = 0;
-    return (error);
-}
-
-static int
-tm1637_write(struct cdev *tm1637_cdev __unused, struct uio *uio, int ioflag __unused)
+tm1637_read(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 {
 	int error;
 	size_t amount;
-	struct tm1637_softc *sc;
+	struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
 
-	sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+	size_t text_len = sc->tm1637_msg->len + 1;
+	amount = MIN(uio->uio_resid, 
+		     uio->uio_offset >= text_len ? 0 : text_len - uio->uio_offset);
+
+	if ((error = uiomove(sc->tm1637_msg->text, amount, uio)) != 0)
+	    uprintf("uiomove failed!\n");
+
+	return (error);
+}
+
+static int
+tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
+{
+	int error;
+	size_t amount;
+	struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
 
 	/*
 	 * We either write from the beginning or are appending -- do
 	 * not allow random access.
 	 */
-	if (uio->uio_offset != 0 && (uio->uio_offset != tm1637_msg->len))
+	if (uio->uio_offset != 0 && (uio->uio_offset != sc->tm1637_msg->len))
 		return (EINVAL);
 
 	// This is a new message, reset length
 	if (uio->uio_offset == 0)
-		tm1637_msg->len = 0;
+		sc->tm1637_msg->len = 0;
 
 	// Copy the string in from user memory to kernel memory
-	amount = MIN(uio->uio_resid, (BUFFERSIZE - tm1637_msg->len));
+	amount = MIN(uio->uio_resid, (TM1637_BUFFERSIZE - sc->tm1637_msg->len));
 
-	error = uiomove(tm1637_msg->text + uio->uio_offset, amount, uio);
+	error = uiomove(sc->tm1637_msg->text + uio->uio_offset, amount, uio);
 
 	// Terminate the message by zero and set the length
-	tm1637_msg->len = uio->uio_offset;
-	tm1637_msg->text[tm1637_msg->len] = 0;
+	sc->tm1637_msg->len = uio->uio_offset;
+	sc->tm1637_msg->text[sc->tm1637_msg->len] = 0;
 
 	if (error != 0)
 	    uprintf("Write failed: bad address!\n");
-
-	tm1637_decode_string(sc, tm1637_msg->text);
-	tm1637_display_digits(sc);
+	else
+	{
+	    tm1637_decode_string(sc, sc->tm1637_msg->text);
+	    tm1637_display_digits(sc);
+	}
 
 	return (error);
 }
@@ -569,7 +570,8 @@ tm1637_cleanup(struct tm1637_softc *sc)
 	if (sc->tm1637_sdapin != NULL)
 		gpio_pin_release(sc->tm1637_sdapin);
 
-	free(tm1637_msg, M_TM1637BUF);
+	free(sc->tm1637_msg, M_TM1637BUF);
+//	free(tm1637_msg, M_TM1637BUF);
 }
 
 static int
@@ -668,7 +670,8 @@ tm1637_attach(device_t dev)
 	    "raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	    &tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
 
-	tm1637_msg = malloc(sizeof(*tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
+//	tm1637_msg = malloc(sizeof(*tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
+	sc->tm1637_msg = malloc(sizeof(*sc->tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
 
 	tm1637_display_clear(sc);
 	tm1637_display_on(sc);
