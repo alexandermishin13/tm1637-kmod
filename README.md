@@ -28,11 +28,9 @@ You can change brightness by write a 0...7 digit to kernel variable. 0 is a dark
 sysctl dev.tm1637.0.brightness=7
 ```
 
-
 ## Bugs
 
 * You need to close the device before sending a new string (I think so. I didn't check it out)
-* An input overflow makes kldunload impossible.
 
 ## Status
 

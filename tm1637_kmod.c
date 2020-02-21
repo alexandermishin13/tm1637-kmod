@@ -522,6 +522,7 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 {
 	int error;
 	size_t amount;
+	size_t available;
 	struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
 
 	/*
@@ -535,8 +536,12 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 	if (uio->uio_offset == 0)
 		sc->tm1637_msg->len = 0;
 
+	available = TM1637_BUFFERSIZE - sc->tm1637_msg->len;
+	if (uio->uio_resid > available)
+		return (EINVAL);
+
 	// Copy the string in from user memory to kernel memory
-	amount = MIN(uio->uio_resid, (TM1637_BUFFERSIZE - sc->tm1637_msg->len));
+	amount = MIN(uio->uio_resid, available);
 
 	error = uiomove(sc->tm1637_msg->text + uio->uio_offset, amount, uio);
 
