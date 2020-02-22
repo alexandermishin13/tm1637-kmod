@@ -364,16 +364,23 @@ tm1637_display_off(struct tm1637_softc *sc)
 static void
 tm1637_decode_string(struct tm1637_softc *sc, u_char* s)
 {
-	int ic, id = 0;
+	int ic, id = TM1637_MAX_COLOM - 1;
 
 	// Number of digits + 1 for a colon, if any
-	for(ic=0; ic<=TM1637_MAX_COLOM; ic++)
+	for(ic=TM1637_MAX_COLOM; ic>=0; ic--)
 	{
 	    unsigned char c = s[ic];
-	    if(c>='0' && c<='9')
-		sc->tm1637_digits[id++] = char_code[c&0x0f];
+	    if(c>='0' && c<='9') // encode if digit
+	    {
+		sc->tm1637_digits[id--] = char_code[c&0x0f];
+	    }
+	    else if(c=='#') // No changes if wildcard
+	    {
+		id--;
+	    }
 	    else if(ic==2)
 	    {
+		// No switch to next digit, just set flag
 		switch(c)
 		{
 		    case ':':

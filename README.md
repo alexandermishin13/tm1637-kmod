@@ -16,16 +16,27 @@ kldload tm1637
 
 ## Usage
 
-You can open a character device `/dev/tm1637` and write to it a string about a five characters (format dd:dd).
-
+You can open a character device `/dev/tm1637` and write to it a string about
+a five characters (format, ##:##).
 ```
-echo "12:30" > /dev/tm1637; sleep 1; echo "12 30" > /dev/tm1637
+echo "12:30" > /dev/tm1637; sleep 1; echo "## #1" > /dev/tm1637
 ```
+Available symbols are:
+* digits [0..9];
+* wildcard '#' for keep this position untouched;
+* ':' and ' ' on 3rd position for set or clear clockpoint;
+* Any other symbols clears this digit position to blank.
 
-You can change brightness by write a 0...7 digit to kernel variable. 0 is a darkest one.
-:
+If no ':' nor ' ' on 3rd position the clockpoint keeps untouched.
+
+You can change brightness by write a 0...7 digit to kernel variable. 0 is
+a darkest one.
+Also You can off or on the display by kernel variable (brightness level keeps
+until the display is on again).
+
 ```
 sysctl dev.tm1637.0.brightness=7
+sysctl dev.tm1637.0.on=0
 ```
 
 ## Bugs
@@ -34,5 +45,5 @@ sysctl dev.tm1637.0.brightness=7
 
 ## Status
 
-Current status of the driver is "unfinished".
+Current status of the driver is "early alpha".
 
