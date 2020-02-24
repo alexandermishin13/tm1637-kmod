@@ -39,6 +39,8 @@
 #define	TM1637_MAX_COLOM	4
 #define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2 // For ':' and '\0'
 
+MALLOC_DECLARE(M_TM1637BUF);
+MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "buffer for tm1637 module");
 
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
@@ -437,9 +439,11 @@ tm1637_decode_string(struct tm1637_softc *sc, u_char* s)
 		sc->tm1637_digits[id--] = 0x00;
 	}
 
-	// Set a colon segment
+	// Set or unset a colon segment
 	if(sc->tm1637_colon)
 	    sc->tm1637_digits[1] |= 0x80;
+	else
+	    sc->tm1637_digits[1] &= 0x7f;
 }
 
 static int
@@ -516,13 +520,6 @@ static d_open_t      tm1637_open;
 static d_close_t     tm1637_close;
 static d_read_t      tm1637_read;
 static d_write_t     tm1637_write;
-
-/* vars */
-//static struct cdev *tm1637_dev;
-//static struct s_message *tm1637_msg;
-
-MALLOC_DECLARE(M_TM1637BUF);
-MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "buffer for tm1637 module");
 
 /* Character device entry points */
 static struct cdevsw tm1637_cdevsw = {
@@ -634,7 +631,6 @@ tm1637_cleanup(struct tm1637_softc *sc)
 		gpio_pin_release(sc->tm1637_sdapin);
 
 	free(sc->tm1637_msg, M_TM1637BUF);
-//	free(tm1637_msg, M_TM1637BUF);
 }
 
 static int
@@ -659,7 +655,6 @@ tm1637_detach(device_t dev)
 	struct tm1637_softc *sc = device_get_softc(dev);
 	int err;
 
-	tm1637_display_clear(sc);
 	tm1637_display_off(sc);
 
 	if ((err = bus_generic_detach(dev)) != 0)
@@ -733,7 +728,6 @@ tm1637_attach(device_t dev)
 	    "raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	    &tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
 
-//	tm1637_msg = malloc(sizeof(*tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
 	sc->tm1637_msg = malloc(sizeof(*sc->tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
 
 	tm1637_display_clear(sc);
