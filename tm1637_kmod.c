@@ -60,6 +60,7 @@ struct tm1637_softc {
 	uint8_t			 tm1637_raw_format;
 	bool			 tm1637_colon;
 	u_char			 tm1637_digits[TM1637_MAX_COLOM];
+	u_char			 tm1637_digits_prev[TM1637_MAX_COLOM];
 	struct cdev		*tm1637_cdev;
 	struct s_message	*tm1637_msg;
 };
@@ -277,28 +278,29 @@ tm1637_set_clockpoint(struct tm1637_softc *sc, bool value)
  * Send to display a given digit (3 bytes will be sended)
  */
 static void
-tm1637_display_digit(struct tm1637_softc *sc, uint8_t position)
+tm1637_display_digit(struct tm1637_softc *sc, size_t position)
 {
 	if (position >= TM1637_MAX_COLOM)
 	  return;
 
-	tm1637_gpio_start(sc); // Start a byte
-	tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send an address autoincrement command to tm1637
-	tm1637_gpio_stop(sc);  // Stop a byte
-
-	tm1637_gpio_start(sc); // Start a byte sequence
-	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS|position); // Send a start address to tm1637
-
-	if (position == 1)
+	if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
 	{
-	    if(sc->tm1637_colon)
-		sc->tm1637_digits[1] |= 0x80;
-	    else
-		sc->tm1637_digits[1] &= 0x7f;
-	}
+		sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
 
-	tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
-	tm1637_gpio_stop(sc); // Stop a byte sequence
+		tm1637_gpio_start(sc); // Start a byte
+		tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send an address autoincrement command to tm1637
+		tm1637_gpio_stop(sc);  // Stop a byte
+
+		tm1637_gpio_start(sc); // Start a byte sequence
+		tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + position); // Send a start address to tm1637
+
+#ifdef DEBUG
+		uprintf("displaay: [%i:%x]\n", position, sc->tm1637_digits[position]);
+#endif
+
+		tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
+		tm1637_gpio_stop(sc); // Stop a byte sequence
+	}
 }
 
 /*
@@ -307,23 +309,57 @@ tm1637_display_digit(struct tm1637_softc *sc, uint8_t position)
 static void
 tm1637_display_digits(struct tm1637_softc *sc)
 {
-	int position;
+	size_t position = TM1637_MAX_COLOM;
+	size_t first = TM1637_MAX_COLOM, last = 0;
 
-	tm1637_gpio_start(sc); // Start a byte
-	tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
-	tm1637_gpio_stop(sc);  // Stop a byte
+#ifdef DEBUG
+	uprintf("changed: ");
+#endif
+	while(position--)
+	{
+		if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
+		{
+#ifdef DEBUG
+			uprintf("[%i:%x]", position, sc->tm1637_digits[position]);
+#endif
+			sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
 
-	tm1637_gpio_start(sc); // Start a byte sequence
-	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS); // Send a start address to tm1637
+			first = position;
+			if (last == 0)
+			    last = position;
+		}
+	}
 
-	if (sc->tm1637_colon)
-		sc->tm1637_digits[1] |= 0x80;
-	else
-		sc->tm1637_digits[1] &= 0x7f;
+#ifdef DEBUG
+	uprintf("\n");
+	uprintf("display: ");
+#endif
 
-	for(position=0; position<TM1637_MAX_COLOM; position++)
-		tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
-	tm1637_gpio_stop(sc); // Stop a byte sequence
+	// If changes was made, display them
+	if(first < TM1637_MAX_COLOM)
+	{
+		tm1637_gpio_start(sc); // Start a byte
+		tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
+		tm1637_gpio_stop(sc);  // Stop a byte
+
+		tm1637_gpio_start(sc); // Start a byte sequence
+		tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + first); // Send a start address to tm1637
+
+		for(position=first; position<=last; position++)
+		{
+
+#ifdef DEBUG
+			uprintf("[%i:%x]", position, sc->tm1637_digits[position]);
+#endif
+
+			tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
+		}
+		tm1637_gpio_stop(sc); // Stop a byte sequence
+
+#ifdef DEBUG
+	uprintf("\n");
+#endif
+	}
 }
 
 /*
@@ -332,8 +368,14 @@ tm1637_display_digits(struct tm1637_softc *sc)
 static void
 tm1637_display_clear(struct tm1637_softc *sc)
 {
-	// Display all zeros
-	memset(sc->tm1637_digits, 0x00, sizeof(sc->tm1637_digits));
+	size_t position = TM1637_MAX_COLOM;
+
+	// Display all blanks
+	while(position--)
+	{
+	    sc->tm1637_digits[position] = 0x00;
+	    sc->tm1637_digits_prev[position] = 0xff; // ... forced
+	}
 	tm1637_display_digits(sc);
 }
 
@@ -392,8 +434,12 @@ tm1637_decode_string(struct tm1637_softc *sc, u_char* s)
 		}
 	    }
 	    else
-		sc->tm1637_digits[id++] = 0x00;
+		sc->tm1637_digits[id--] = 0x00;
 	}
+
+	// Set a colon segment
+	if(sc->tm1637_colon)
+	    sc->tm1637_digits[1] |= 0x80;
 }
 
 static int
@@ -492,10 +538,12 @@ static int
 tm1637_open(struct cdev *tm1637_cdev __unused, int oflags __unused, int devtype __unused,
     struct thread *td __unused)
 {
-    int error = 0;
 
+#ifdef DEBUG
     uprintf("Opened device \"%s\" successfully.\n", tm1637_cdevsw.d_name);
-    return (error);
+#endif
+
+    return (0);
 }
 
 static int
@@ -503,7 +551,10 @@ tm1637_close(struct cdev *tm1637_cdev __unused, int fflag __unused, int devtype 
     struct thread *td __unused)
 {
 
+#ifdef DEBUG
     uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);
+#endif
+
     return (0);
 }
 
