@@ -406,14 +406,14 @@ tm1637_display_off(struct tm1637_softc *sc)
 }
 
 static void
-tm1637_decode_string(struct tm1637_softc *sc, u_char* s)
+tm1637_msg_decode(struct tm1637_softc *sc)
 {
-	int ic, id = TM1637_MAX_COLOM - 1;
+	size_t ic, id = TM1637_MAX_COLOM - 1;
 
 	// Number of digits + 1 for a colon, if any
-	for(ic=TM1637_MAX_COLOM; ic>=0; ic--)
+	for(ic=sc->tm1637_msg->len; ic>=0; ic--)
 	{
-	    unsigned char c = s[ic];
+	    unsigned char c = sc->tm1637_msg->text[ic];
 	    if(c>='0' && c<='9') // encode if digit
 	    {
 		sc->tm1637_digits[id--] = char_code[c&0x0f];
@@ -608,7 +608,7 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 	    uprintf("Write failed: bad address!\n");
 	else
 	{
-	    tm1637_decode_string(sc, sc->tm1637_msg->text);
+	    tm1637_msg_decode(sc);
 	    tm1637_display_digits(sc);
 	}
 
