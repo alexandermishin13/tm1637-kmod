@@ -39,10 +39,13 @@
 #define	TM1637_MAX_COLOM	4
 #define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2 // For ':' and '\0'
 
-MALLOC_DECLARE(M_TM1637BUF);
-MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "buffer for tm1637 module");
+#define SIGN_MINUS		0x40
+#define SIGN_EMPTY		0x00
 
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
+
+MALLOC_DECLARE(M_TM1637BUF);
+MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "buffer for tm1637 module");
 
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
@@ -398,7 +401,7 @@ tm1637_display_clear(struct tm1637_softc *sc)
     // Display all blanks
     while(position--)
     {
-	sc->tm1637_digits[position] = 0x00;
+	sc->tm1637_digits[position] = SIGN_EMPTY;
 	sc->tm1637_digits_prev[position] = 0xff; // ... forced
     }
     tm1637_display_digits(sc);
@@ -451,6 +454,10 @@ tm1637_msg_decode(struct tm1637_softc *sc)
 	{
 	    sc->tm1637_digits[position++] = char_code[c&0x0f];
 	}
+	else if(c=='-') // '-' sign
+	{
+	    sc->tm1637_digits[position++] = SIGN_MINUS;
+	}
 	else if(c=='#') // No changes if wildcard
 	{
 	    position++;
@@ -469,7 +476,7 @@ tm1637_msg_decode(struct tm1637_softc *sc)
 	    }
 	}
 	else
-		sc->tm1637_digits[position++] = 0x00;
+		sc->tm1637_digits[position++] = SIGN_EMPTY;
 
 	// Set a clockpoint even if it not changed this time
 	if(sc->tm1637_colon)

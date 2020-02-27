@@ -23,6 +23,7 @@ echo "12:30" > /dev/tm1637; sleep 1; echo "## #1" > /dev/tm1637
 ```
 Available symbols are:
 * digits [0..9];
+* minus sign;
 * wildcard '#' for keep this position untouched;
 * ':' and ' ' on 3rd position for set or clear clockpoint;
 * Any other symbols clears this digit position to blank.
