@@ -1,4 +1,6 @@
-# tm1637 kernel module for FreeBSD
+# tm1637 kernel character device for FreeBSD
+
+![TM1637](/tm1637.jpg?raw=true "TM1637 display")
 
 ## About
 
@@ -11,17 +13,17 @@ suitable for writing strings to it, which would be displayed by it
 immediately. I wished the device was smart enough for minimize a transfer
 a characters which is not changed. As example, You can send:
 
-* `12:30` - 4 digits would be transfered by kernel to tm1637
-* `12 31` - Only "231" would be tranfered. As colon is a part of second
+* `12:30` - 4 digits would be transferred by kernel to tm1637
+* `12 31` - Only "231" would be tranferred. As colon is a part of second
 digit (right now is "2") and colon is changed, then second digit is also in
 a changed digits list;
-* `12 31` or `1231` - No digits would be transfered at all as the digits nor
-the colon are not changed;
-* `12:31` - Only second digit (see above) will be transfered now;
+* `12 31` or `1231` - No numbers will be transferred at all, since neither
+digits nor colon not changed
+* `12:31` - Only second digit (see above) will be transferred now;
 * `## ##` - Only second digit again, but even faster than previous one as no
 other digits compares would be made at all;
 * `--:--` or `-- --` - It is an also possible combination (for a start
-decoration)
+decoration).
 
 ## Installation
 
@@ -51,6 +53,12 @@ Now You can load the module:
 kldload tm1637
 ```
 
+After loading the module a character device "/dev/tm1637" and a sysctl-tree
+branch "dev.tm1637.0" will be created. Right now the display is dark and
+empty as it contains all blanks w/out a colon.
+
+Now the display can be easy used from PHP or Python or anything alse.
+
 ## Usage
 
 You can open a character device `/dev/tm1637` and write to it a string about
@@ -79,7 +87,8 @@ sysctl dev.tm1637.0.on=0
 
 ## Bugs
 
-* You need to close the device before sending a new string (I think so. I didn't check it out)
+* You need to close the device before sending a new string (I think so.
+I didn't check it out)
 
 ## Status
 
