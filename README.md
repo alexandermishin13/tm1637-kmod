@@ -44,9 +44,9 @@ sudo make install
 ```
 
 Append an overlay to "/boot/loader.conf":
-```
-fdt_overlays="sun8i-h3-sid,sun8i-h3-ths**,sun8i-h3-tm1637-gpio**"
-```
+<pre><code>
+fdt_overlays="sun8i-h3-sid,sun8i-h3-ths<b>,sun8i-h3-tm1637-gpio</b>"
+</code></pre>
 
 Now You can load the module:
 ```
