@@ -7,6 +7,8 @@
 
 #include <sys/types.h>
 #include <sys/module.h>
+#include <sys/lock.h>
+#include <sys/mutex.h>
 #include <sys/systm.h>  /* uprintf */
 #include <sys/sysctl.h>
 #include <sys/conf.h>   /* cdevsw struct */
@@ -42,6 +44,15 @@
 #define SIGN_MINUS		0x40
 #define SIGN_EMPTY		0x00
 
+#define	TM1637_LOCK_INIT(sc)						\
+    mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
+#define	TM1637_LOCK_DESTROY(sc)						\
+    mtx_destroy(&(sc)->lock)
+#define	TM1637_LOCK(sc)							\
+    mtx_lock(&(sc)->lock)
+#define	TM1637_UNLOCK(sc)						\
+    mtx_unlock(&(sc)->lock)
+
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
 MALLOC_DECLARE(M_TM1637BUF);
@@ -63,9 +74,11 @@ struct tm1637_softc {
     uint8_t		 tm1637_brightness;
     uint8_t		 tm1637_on;
     uint8_t		 tm1637_raw_format;
+    bool		 tm1637_inuse;
     bool		 tm1637_colon;
     u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // 1 byte overflow
     u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
+    struct mtx		 lock;
     struct cdev		*tm1637_cdev;
     struct s_message	*tm1637_msg;
 };
@@ -84,6 +97,31 @@ static struct ofw_compat_data compat_data[] = {
 
 OFWBUS_PNP_INFO(compat_data);
 SIMPLEBUS_PNP_INFO(compat_data);
+
+static device_method_t tm1637_methods[] = {
+    /* Device interface */
+    DEVMETHOD(device_probe,		tm1637_probe),
+    DEVMETHOD(device_attach,	tm1637_attach),
+    DEVMETHOD(device_detach,	tm1637_detach),
+
+    DEVMETHOD_END
+};
+
+static driver_t tm1637_driver = {
+    "tm1637",
+    tm1637_methods,
+    sizeof(struct tm1637_softc)
+};
+
+static devclass_t tm1637_devclass;
+
+#ifdef FDT
+DRIVER_MODULE(tm1637, simplebus, tm1637_driver, tm1637_devclass, NULL, NULL);
+#endif
+
+DRIVER_MODULE(tm1637, gpiobus, tm1637_driver, tm1637_devclass, NULL, NULL);
+MODULE_VERSION(tm1637, 1);
+MODULE_DEPEND(tm1637, gpiobus, 1, 1, 1);
 
 static int
 tm1637_setup_fdt_pins(struct tm1637_softc *sc)
@@ -581,9 +619,19 @@ static struct cdevsw tm1637_cdevsw = {
 };
 
 static int
-tm1637_open(struct cdev *tm1637_cdev __unused, int oflags __unused, int devtype __unused,
+tm1637_open(struct cdev *tm1637_cdev, int oflags __unused, int devtype __unused,
     struct thread *td __unused)
 {
+    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+
+    TM1637_LOCK(sc);
+    if (sc->tm1637_inuse) {
+        TM1637_UNLOCK(sc);
+        return (EBUSY);
+    }
+    /* move to init */
+    sc->tm1637_inuse = true;
+    TM1637_UNLOCK(sc);
 
 #ifdef DEBUG
     uprintf("Opened device \"%s\" successfully.\n", tm1637_cdevsw.d_name);
@@ -596,6 +644,9 @@ static int
 tm1637_close(struct cdev *tm1637_cdev __unused, int fflag __unused, int devtype __unused,
     struct thread *td __unused)
 {
+    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+
+    sc->tm1637_inuse = false;
 
 #ifdef DEBUG
     uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);
@@ -679,6 +730,7 @@ tm1637_cleanup(struct tm1637_softc *sc)
 	gpio_pin_release(sc->tm1637_sdapin);
 
     free(sc->tm1637_msg, M_TM1637BUF);
+    TM1637_LOCK_DESTROY(sc);
 }
 
 static int
@@ -724,6 +776,7 @@ tm1637_attach(device_t dev)
     sc = device_get_softc(dev);
     ctx = device_get_sysctl_ctx(dev);
     tree = device_get_sysctl_tree(dev);
+    TM1637_LOCK_INIT(sc);
 
     sc->tm1637_dev = dev;
 
@@ -788,27 +841,3 @@ tm1637_attach(device_t dev)
     return (bus_generic_attach(dev));
 }
 
-static device_method_t tm1637_methods[] = {
-    /* Device interface */
-    DEVMETHOD(device_probe,		tm1637_probe),
-    DEVMETHOD(device_attach,	tm1637_attach),
-    DEVMETHOD(device_detach,	tm1637_detach),
-
-    DEVMETHOD_END
-};
-
-static driver_t tm1637_driver = {
-    "tm1637",
-    tm1637_methods,
-    sizeof(struct tm1637_softc)
-};
-
-static devclass_t tm1637_devclass;
-
-#ifdef FDT
-DRIVER_MODULE(tm1637, simplebus, tm1637_driver, tm1637_devclass, NULL, NULL);
-#endif
-
-DRIVER_MODULE(tm1637, gpiobus, tm1637_driver, tm1637_devclass, NULL, NULL);
-MODULE_VERSION(tm1637, 1);
-MODULE_DEPEND(tm1637, gpiobus, 1, 1, 1);
