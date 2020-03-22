@@ -69,11 +69,15 @@ echo "12:30" > /dev/tm1637; sleep 1; echo "## #1" > /dev/tm1637
 Available symbols are:
 * digits [0..9];
 * minus sign;
-* wildcard '#' for keep this position untouched;
-* ':' and ' ' on 3rd position for set or clear clockpoint;
-* Any other symbols clears this digit position to blank.
+* placeholder '#' for keep this position untouched;
+* ':' and ' ' in 3rd position for set or clear clockpoint;
+* Any other symbols leads to an error message.
 
-If no ':' nor ' ' on 3rd position the clockpoint keeps untouched.
+If at the 3rd position there is neither ':' nor ' ' (number format),
+then the clockpoint remains unchanged.
+On the other hand, the clock format is strict and requires 5 characters:
+a colon or space in the third position and 4 digits or placeholders in other
+ones ('##:##').
 
 You can change brightness by write a 0...7 digit to kernel variable. 0 is
 a darkest one.

@@ -39,7 +39,8 @@
 #define	TM1637_BRIGHTEST	7
 
 #define	TM1637_MAX_COLOM	4
-#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2 // For ':' and '\0'
+#define	TM1637_COLON_POSITION	2 // 2-st from zero character if not a digit or a sign
+#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 3 // For ':', '\n' and '\0'
 
 #define SIGN_MINUS		0x40
 #define SIGN_EMPTY		0x00
@@ -56,14 +57,16 @@
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
 MALLOC_DECLARE(M_TM1637BUF);
+MALLOC_DECLARE(M_TM1637MSG);
 MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "buffer for tm1637 module");
+MALLOC_DEFINE(M_TM1637MSG, "tm1637message", "buffer for tm1637 module");
 
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
 
 struct s_message {
-    char text[TM1637_BUFFERSIZE + 1];
+    char text[TM1637_BUFFERSIZE + 1]; // ??? +1
     int len;
 };
 
@@ -76,11 +79,12 @@ struct tm1637_softc {
     uint8_t		 tm1637_raw_format;
     bool		 tm1637_inuse;
     bool		 tm1637_colon;
-    u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // 1 byte overflow
+    u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // ??? 1 byte overflow
     u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
     struct mtx		 lock;
     struct cdev		*tm1637_cdev;
     struct s_message	*tm1637_msg;
+    struct s_message	*tm1637_buf;
 };
 
 static void tm1637_display_on(struct tm1637_softc *sc);
@@ -343,7 +347,7 @@ tm1637_display_digit(struct tm1637_softc *sc, size_t position)
     {
 
 #ifdef DEBUG
-	uprintf("changed: [%i:%02x->%02x]\n", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
+	uprintf("changed: %i[%02x->%02x]\n", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
 #endif
 
 	sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
@@ -356,11 +360,30 @@ tm1637_display_digit(struct tm1637_softc *sc, size_t position)
 	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + position); // Send a start address to tm1637
 
 #ifdef DEBUG
-	uprintf("display: [%i:    %02x]\n", position, sc->tm1637_digits[position]);
+	uprintf("display: %i[    %02x]\n", position, sc->tm1637_digits[position]);
 #endif
 
 	tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
 	tm1637_gpio_stop(sc); // Stop a byte sequence
+    }
+}
+
+/*
+ * Restore last digits
+ */
+static void
+tm1637_restore_digits(struct tm1637_softc *sc)
+{
+    size_t position;
+#ifdef DEBUG
+    uprintf("restore: ");
+#endif
+    for(position=0; position<TM1637_MAX_COLOM; position++)
+    {
+	sc->tm1637_digits[position] = sc->tm1637_digits_prev[position];
+#ifdef DEBUG
+	uprintf("%i[%02x->%02x]", position, sc->tm1637_digits[position], sc->tm1637_digits_prev[position]);
+#endif
     }
 }
 
@@ -370,20 +393,18 @@ tm1637_display_digit(struct tm1637_softc *sc, size_t position)
 static void
 tm1637_display_digits(struct tm1637_softc *sc)
 {
-    size_t position = TM1637_MAX_COLOM;
-    size_t first = TM1637_MAX_COLOM, last = 0;
+    size_t first = TM1637_MAX_COLOM, position, last = 0;
 
     // Finding a range of changed digits
 #ifdef DEBUG
     uprintf("changed: ");
 #endif
-//    while(position--)
     for(position=0; position<TM1637_MAX_COLOM; position++)
     {
 	if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
 	{
 #ifdef DEBUG
-	    uprintf("[%i:%02x->%02x]", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
+	    uprintf("%i[%02x->%02x]", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
 #endif
 	    sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
 
@@ -415,7 +436,7 @@ tm1637_display_digits(struct tm1637_softc *sc)
 	{
 
 #ifdef DEBUG
-	    uprintf("[%i:    %02x]", position, sc->tm1637_digits[position]);
+	    uprintf("%i[    %02x]", position, sc->tm1637_digits[position]);
 #endif
 
 	    tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
@@ -469,20 +490,20 @@ tm1637_display_off(struct tm1637_softc *sc)
     tm1637_gpio_stop(sc); // Stop a byte
 }
 
-static void
+static int
 tm1637_msg_decode(struct tm1637_softc *sc)
 {
     size_t buf_index = 0, position = 0;
-    size_t amount = MIN(sc->tm1637_msg->len, TM1637_MAX_COLOM);
+    int err = EJUSTRETURN;
 
 #ifdef DEBUG
     uprintf("received: [");
 #endif
 
     // Number of digits and colon if any
-    while(buf_index<=amount)
+    while(buf_index <= sc->tm1637_buf->len)
     {
-	u_char c = sc->tm1637_msg->text[buf_index];
+	u_char c = sc->tm1637_buf->text[buf_index];
 
 #ifdef DEBUG
 	    uprintf("%c", c);
@@ -500,35 +521,72 @@ tm1637_msg_decode(struct tm1637_softc *sc)
 	{
 	    position++;
 	}
+	else if(c=='\n') // End of chunk
+	{
+	    break;
+	}
 	else if(buf_index==2)
 	{
-	    // No switch to next digit, just set flag
-	    switch(c)
-	    {
-		case ':':
-		    sc->tm1637_colon = true;
-		    break;
-		case ' ':
-		    sc->tm1637_colon = false;
-		    break;
-	    }
+	    // Set a clockpoint or return an error
+	    if (c == ':')
+		sc->tm1637_colon = true;
+	    else if (c == ' ')
+		sc->tm1637_colon = false;
+	    else
+		return EINVAL;
 	}
 	else
-		sc->tm1637_digits[position++] = SIGN_EMPTY;
-
-	// Set a clockpoint even if it not changed this time
-	if(sc->tm1637_colon)
-	    sc->tm1637_digits[1] |= 0x80;
-	else
-	    sc->tm1637_digits[1] &= 0x7f;
+		return EINVAL;
 
 	buf_index++;
     }
 
 #ifdef DEBUG
     uprintf("]\n");
+    uprintf("length: %d\n", buf_index);
 #endif
 
+    // Adjust length to position by decrease value by one
+    buf_index--;
+    // Check for errors. A variable 'buf_index' contains a length of the chunk
+    if (buf_index == TM1637_MAX_COLOM)
+    {
+	u_char clockpoint = sc->tm1637_buf->text[TM1637_COLON_POSITION];
+	if (clockpoint != ':' && clockpoint != ' ')
+	    return EINVAL;
+
+#ifdef DEBUG
+	uprintf("type: clock\n");
+#endif
+
+	// Mark an appropriate digit for a clockpoint
+	if(sc->tm1637_colon)
+	    sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
+	else
+	    sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
+
+	err = 0;
+    }
+    else if (buf_index < TM1637_MAX_COLOM)
+    {
+	if (sc->tm1637_buf->text[TM1637_COLON_POSITION] == ':')
+	    return EINVAL;
+
+#ifdef DEBUG
+	uprintf("type: number\n");
+#endif
+
+	// Add trailing spaces
+	for (;position <= TM1637_MAX_COLOM; position++)
+	    sc->tm1637_digits[position] = 0x00;
+
+	err = 0;
+    }
+    else
+	return EINVAL;
+
+
+    return err;
 }
 
 static int
@@ -678,38 +736,42 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
     int error;
     size_t amount;
     size_t available;
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored on tm1637_attach()
 
     /*
      * We either write from the beginning or are appending -- do
      * not allow random access.
      */
-    if (uio->uio_offset != 0 && (uio->uio_offset != sc->tm1637_msg->len))
+    if (uio->uio_offset != 0 && (uio->uio_offset != sc->tm1637_buf->len))
 	return (EINVAL);
 
     // This is a new message, reset length
     if (uio->uio_offset == 0)
-	sc->tm1637_msg->len = 0;
+	sc->tm1637_buf->len = 0;
 
-    available = TM1637_BUFFERSIZE - sc->tm1637_msg->len;
+    available = TM1637_BUFFERSIZE - sc->tm1637_buf->len;
     if (uio->uio_resid > available)
 	return (EINVAL);
 
     // Copy the string in from user memory to kernel memory
     amount = MIN(uio->uio_resid, available);
 
-    error = uiomove(sc->tm1637_msg->text + uio->uio_offset, amount, uio);
+    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
 
     // Terminate the message by zero and set the length
-    sc->tm1637_msg->len = uio->uio_offset;
-    sc->tm1637_msg->text[sc->tm1637_msg->len] = 0;
+    sc->tm1637_buf->len = uio->uio_offset;
+    sc->tm1637_buf->text[sc->tm1637_buf->len] = 0;
 
     if (error != 0)
 	uprintf("Write failed: bad address!\n");
     else
     {
-	tm1637_msg_decode(sc);
-	tm1637_display_digits(sc);
+	// Decode string from sc->tm1637_buf to sc->tm1637_msg
+	error = tm1637_msg_decode(sc);
+	if (error == 0)
+	    tm1637_display_digits(sc);
+	else
+	    tm1637_restore_digits(sc);
     }
 
     return (error);
@@ -729,7 +791,8 @@ tm1637_cleanup(struct tm1637_softc *sc)
     if (sc->tm1637_sdapin != NULL)
 	gpio_pin_release(sc->tm1637_sdapin);
 
-    free(sc->tm1637_msg, M_TM1637BUF);
+    free(sc->tm1637_buf, M_TM1637BUF);
+    free(sc->tm1637_msg, M_TM1637MSG);
     TM1637_LOCK_DESTROY(sc);
 }
 
@@ -833,7 +896,8 @@ tm1637_attach(device_t dev)
 	"raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	&tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
 
-    sc->tm1637_msg = malloc(sizeof(*sc->tm1637_msg), M_TM1637BUF, M_WAITOK | M_ZERO);
+    sc->tm1637_buf = malloc(sizeof(*sc->tm1637_buf), M_TM1637BUF, M_WAITOK | M_ZERO);
+    sc->tm1637_msg = malloc(sizeof(*sc->tm1637_msg), M_TM1637MSG, M_WAITOK | M_ZERO);
 
     tm1637_display_clear(sc);
     tm1637_display_on(sc);
