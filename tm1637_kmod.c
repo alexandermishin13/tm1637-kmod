@@ -56,9 +56,7 @@
 
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
-MALLOC_DECLARE(M_TM1637BUF);
 MALLOC_DECLARE(M_TM1637MSG);
-MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "buffer for tm1637 module");
 MALLOC_DEFINE(M_TM1637MSG, "tm1637message", "buffer for tm1637 module");
 
 static int tm1637_probe(device_t);
@@ -84,7 +82,6 @@ struct tm1637_softc {
     struct mtx		 lock;
     struct cdev		*tm1637_cdev;
     struct s_message	*tm1637_msg;
-    struct s_message	*tm1637_buf;
 };
 
 static void tm1637_display_on(struct tm1637_softc *sc);
@@ -385,6 +382,9 @@ tm1637_restore_digits(struct tm1637_softc *sc)
 	uprintf("%i[%02x->%02x]", position, sc->tm1637_digits[position], sc->tm1637_digits_prev[position]);
 #endif
     }
+#ifdef DEBUG
+    uprintf("\n");
+#endif
 }
 
 /*
@@ -501,11 +501,14 @@ tm1637_msg_decode(struct tm1637_softc *sc)
 #endif
 
     // Number of digits and colon if any
-    while(buf_index <= sc->tm1637_buf->len)
+    while(buf_index <= sc->tm1637_msg->len)
     {
-	u_char c = sc->tm1637_buf->text[buf_index];
+	u_char c = sc->tm1637_msg->text[buf_index];
 
 #ifdef DEBUG
+	if (c == '\n')
+	    uprintf("\\n");
+	else
 	    uprintf("%c", c);
 #endif
 
@@ -551,7 +554,7 @@ tm1637_msg_decode(struct tm1637_softc *sc)
     // Check for errors. A variable 'buf_index' contains a length of the chunk
     if (buf_index == TM1637_MAX_COLOM)
     {
-	u_char clockpoint = sc->tm1637_buf->text[TM1637_COLON_POSITION];
+	u_char clockpoint = sc->tm1637_msg->text[TM1637_COLON_POSITION];
 	if (clockpoint != ':' && clockpoint != ' ')
 	    return EINVAL;
 
@@ -569,7 +572,7 @@ tm1637_msg_decode(struct tm1637_softc *sc)
     }
     else if (buf_index < TM1637_MAX_COLOM)
     {
-	if (sc->tm1637_buf->text[TM1637_COLON_POSITION] == ':')
+	if (sc->tm1637_msg->text[TM1637_COLON_POSITION] == ':')
 	    return EINVAL;
 
 #ifdef DEBUG
@@ -742,31 +745,31 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
      * We either write from the beginning or are appending -- do
      * not allow random access.
      */
-    if (uio->uio_offset != 0 && (uio->uio_offset != sc->tm1637_buf->len))
+    if (uio->uio_offset != 0 && (uio->uio_offset != sc->tm1637_msg->len))
 	return (EINVAL);
 
     // This is a new message, reset length
     if (uio->uio_offset == 0)
-	sc->tm1637_buf->len = 0;
+	sc->tm1637_msg->len = 0;
 
-    available = TM1637_BUFFERSIZE - sc->tm1637_buf->len;
+    available = TM1637_BUFFERSIZE - sc->tm1637_msg->len;
     if (uio->uio_resid > available)
 	return (EINVAL);
 
     // Copy the string in from user memory to kernel memory
     amount = MIN(uio->uio_resid, available);
 
-    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
+    error = uiomove(sc->tm1637_msg->text + uio->uio_offset, amount, uio);
 
     // Terminate the message by zero and set the length
-    sc->tm1637_buf->len = uio->uio_offset;
-    sc->tm1637_buf->text[sc->tm1637_buf->len] = 0;
+    sc->tm1637_msg->len = uio->uio_offset;
+    sc->tm1637_msg->text[sc->tm1637_msg->len] = 0;
 
     if (error != 0)
 	uprintf("Write failed: bad address!\n");
     else
     {
-	// Decode string from sc->tm1637_buf to sc->tm1637_msg
+	// Decode string from sc->tm1637_msg to sc->tm1637_msg
 	error = tm1637_msg_decode(sc);
 	if (error == 0)
 	    tm1637_display_digits(sc);
@@ -791,7 +794,6 @@ tm1637_cleanup(struct tm1637_softc *sc)
     if (sc->tm1637_sdapin != NULL)
 	gpio_pin_release(sc->tm1637_sdapin);
 
-    free(sc->tm1637_buf, M_TM1637BUF);
     free(sc->tm1637_msg, M_TM1637MSG);
     TM1637_LOCK_DESTROY(sc);
 }
@@ -896,7 +898,6 @@ tm1637_attach(device_t dev)
 	"raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	&tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
 
-    sc->tm1637_buf = malloc(sizeof(*sc->tm1637_buf), M_TM1637BUF, M_WAITOK | M_ZERO);
     sc->tm1637_msg = malloc(sizeof(*sc->tm1637_msg), M_TM1637MSG, M_WAITOK | M_ZERO);
 
     tm1637_display_clear(sc);
