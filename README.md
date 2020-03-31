@@ -25,6 +25,8 @@ other digits compares would be made at all;
 * `  :  ` or ` ` - In 2nd case trailing spaces will be added;
 * `--:--` or `-- --` - It is an also possible combination (for a start
 decoration).
+All that combinations **should be** ended up with '\n'.
+`echo` do it for You automatically
 
 ## Installation
 
