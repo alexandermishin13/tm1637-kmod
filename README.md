@@ -74,7 +74,7 @@ Available symbols are:
 * Any other symbols leads to an error message.
 
 If at the 3rd position there is neither ':' nor ' ' (number format),
-then the clockpoint remains unchanged.
+then the clockpoint will be turned off.
 On the other hand, the clock format is strict and requires 5 characters:
 a colon or space in the third position and 4 digits or placeholders in other
 ones ('##:##').
