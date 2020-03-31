@@ -12,5 +12,6 @@ SRCS+=	\
 	opt_platform.h \
 
 CFLAGS+=  -I. -I${SRCTOP}/sys/dev/gpio/
+#CFLAGS+=  -DDEBUG
 
 .include <bsd.kmod.mk>

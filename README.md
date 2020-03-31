@@ -30,6 +30,8 @@ decoration).
 
 You need a kernel source for compile the kld-module.
 
+You can uncomment the line with -DDEBUG in the `Makefile` before compilation
+to control how the driver processes strings, what it sends to `tm1637`.
 Compile and install the kernel driver:
 ```
 make depend
@@ -37,7 +39,8 @@ make
 sudo make install
 ```
 
-Compile and install a fdt overlays (edit it for the pins first):
+Compile and install a fdt overlays You need it for declare `tm1637` device.
+Edit the overlay source for the a pins definition first:
 ```
 cd ./fdt-overlays
 make
@@ -93,7 +96,7 @@ sysctl dev.tm1637.0.on=0
 
 ## Bugs
 
-Do not know yet
+Do not know yet.
 
 ## Status
 
