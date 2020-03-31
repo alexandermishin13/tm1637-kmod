@@ -30,7 +30,9 @@ All that combinations **should be** ended up with '\n'.
 
 ## Installation
 
-You need a kernel source for compile the kld-module.
+You need a kernel source for compile the kld-module. I have the source tree
+as a nfs mounted filesystem to `/usr/src`. It may be also an usb-flash with
+it as the kernel sources are not often needed.
 
 You can uncomment the line with -DDEBUG in the `Makefile` before compilation
 to control how the driver processes strings, what it sends to `tm1637`.
@@ -49,7 +51,7 @@ make
 sudo make install
 ```
 
-Append an overlay to "/boot/loader.conf":
+Append an overlay to "/boot/loader.conf" and reboot:
 <pre><code>
 fdt_overlays="sun8i-h3-sid,sun8i-h3-ths<b>,sun8i-h3-tm1637-gpio</b>"
 </code></pre>
@@ -95,6 +97,10 @@ until the display is on again).
 sysctl dev.tm1637.0.brightness=7
 sysctl dev.tm1637.0.on=0
 ```
+
+## Examples
+
+There are examples for Perl and Python in "examples/".
 
 ## Bugs
 
