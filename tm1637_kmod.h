@@ -18,24 +18,35 @@
 #ifndef _TM1637_KMOD_H_
 #define _TM1637_KMOD_H_
 
-#define	TM1637_CDEV_NAME	"tm1637"
-#define	TM1637_SCL_PROPERTY	"scl-gpios"
-#define	TM1637_SDA_PROPERTY	"sda-gpios"
-#define	TM1637_SCL_IDX		0
-#define	TM1637_SDA_IDX		1
-#define	TM1637_MIN_PINS		2
+#define TM1637_CDEV_NAME	"tm1637"
+#define TM1637_SCL_PROPERTY	"scl-gpios"
+#define TM1637_SDA_PROPERTY	"sda-gpios"
+#define TM1637_SCL_IDX		0
+#define TM1637_SDA_IDX		1
+#define TM1637_MIN_PINS		2
 
-#define	TM1637_ACK_TIMEOUT	200
+#define TM1637_ACK_TIMEOUT	200
 
-#define	TM1637_ADDRESS_AUTO	0x40
-#define	TM1637_ADDRESS_FIXED	0x44
+#define TM1637_ADDRESS_AUTO	0x40
+#define TM1637_ADDRESS_FIXED	0x44
 #define TM1637_START_ADDRESS	0xc0
 
-#define	TM1637_BRIGHT_DARKEST	0
-#define	TM1637_BRIGHT_TYPICAL	2
-#define	TM1637_BRIGHTEST	7
+#define TM1637_BRIGHT_DARKEST	0
+#define TM1637_BRIGHT_TYPICAL	2
+#define TM1637_BRIGHTEST	7
 
-#define	TM1637_MAX_COLOM	4
+#define	TM1637_COLON_POSITION	2 // 2-nd character
+#define TM1637_MAX_COLOM	4
+#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 3 // For ':', '\n' and '\0'
+
+#define TM1637_LOCK_INIT(sc)	\
+    mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
+#define TM1637_LOCK_DESTROY(sc)	\
+    mtx_destroy(&(sc)->lock)
+#define TM1637_LOCK(sc)		\
+    mtx_lock(&(sc)->lock)
+#define TM1637_UNLOCK(sc)	\
+    mtx_unlock(&(sc)->lock)
 
 struct tm1637_softc {
     device_t		 tm1637_dev;
@@ -45,21 +56,14 @@ struct tm1637_softc {
     uint8_t		 tm1637_on;
     uint8_t		 tm1637_raw_format;
     bool		 tm1637_inuse;
-    bool		 tm1637_colon;
     u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // ??? 1 byte overflow
     u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
     struct mtx		 lock;
     struct cdev		*tm1637_cdev;
+    struct s_message	*tm1637_buf;
     struct s_message	*tm1637_msg;
 };
 
-#define	TM1637_LOCK_INIT(sc)						\
-    mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
-#define	TM1637_LOCK_DESTROY(sc)						\
-    mtx_destroy(&(sc)->lock)
-#define	TM1637_LOCK(sc)							\
-    mtx_lock(&(sc)->lock)
-#define	TM1637_UNLOCK(sc)						\
-    mtx_unlock(&(sc)->lock)
+MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 module");
 
 #endif /* _TM1637_KMOD_H_ */

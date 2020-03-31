@@ -35,16 +35,10 @@
 
 #include "tm1637_kmod.h"
 
-#define	TM1637_COLON_POSITION	2 // 2-st from zero character if not a digit or a sign
-#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 3 // For ':', '\n' and '\0'
-
 #define SIGN_MINUS		0x40
 #define SIGN_EMPTY		0x00
 
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
-
-MALLOC_DECLARE(M_TM1637MSG);
-MALLOC_DEFINE(M_TM1637MSG, "tm1637message", "buffer for tm1637 module");
 
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
@@ -295,16 +289,7 @@ tm1637_gpio_stop(struct tm1637_softc *sc)
 }
 
 /*
-static void
-tm1637_set_clockpoint(struct tm1637_softc *sc, bool value)
-{
-    sc->tm1637_colon = value;
-}
-*/
-
-/*
  * Send to display a given digit (3 bytes will be sended)
- */
 static void
 tm1637_display_digit(struct tm1637_softc *sc, size_t position)
 {
@@ -335,6 +320,7 @@ tm1637_display_digit(struct tm1637_softc *sc, size_t position)
 	tm1637_gpio_stop(sc); // Stop a byte sequence
     }
 }
+ */
 
 /*
  * Restore last digits
@@ -462,19 +448,20 @@ tm1637_display_off(struct tm1637_softc *sc)
 }
 
 static int
-tm1637_msg_decode(struct tm1637_softc *sc)
+tm1637_msg_process(struct tm1637_softc *sc)
 {
     size_t buf_index = 0, position = 0;
-    int err = EJUSTRETURN;
+    //int err = EJUSTRETURN;
+    int err = 0;
 
 #ifdef DEBUG
-    uprintf("received: [");
+    uprintf("processed: [");
 #endif
 
     // Number of digits and colon if any
-    while(buf_index <= sc->tm1637_msg->len)
+    while(buf_index <= sc->tm1637_buf->len)
     {
-	u_char c = sc->tm1637_msg->text[buf_index];
+	u_char c = sc->tm1637_buf->text[buf_index];
 
 #ifdef DEBUG
 	if (c == '\n')
@@ -489,20 +476,50 @@ tm1637_msg_decode(struct tm1637_softc *sc)
 	    sc->tm1637_digits[position++] = SIGN_MINUS;
 	else if(c=='#') // No changes if wildcard
 	    position++;
-	else if(c=='\n') // End of chunk
-	    break;
-	else if(buf_index==2)
+	else if(c=='\n') // End of a chunk, checking its format
 	{
-	    // Set a clockpoint or return an error
-	    if (c == ':')
-		sc->tm1637_colon = true;
-	    else if (c == ' ')
-		sc->tm1637_colon = false;
+	    // 'buf_index' contains a length of the message
+	    if (buf_index == TM1637_MAX_COLOM + 1)
+	    {
+		u_char clockpoint = sc->tm1637_buf->text[TM1637_COLON_POSITION];
+		if (clockpoint != ':' && clockpoint != ' ')
+		    err = EINVAL;
+	    }
+	    else if (buf_index <= TM1637_MAX_COLOM)
+	    {
+		if (sc->tm1637_buf->text[TM1637_COLON_POSITION] == ':')
+		    err = EINVAL;
+		else
+		{
+		    // Add trailing spaces starting from last position
+		    for (;position <= TM1637_MAX_COLOM; position++)
+			sc->tm1637_digits[position] = 0x00;
+		}
+	    }
 	    else
-		return EINVAL;
+		err = EINVAL;
+
+	    break; // Stop the processing
 	}
+	else if(buf_index==TM1637_COLON_POSITION)
+	{
+	    if (c == ':')
+		sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
+	    else if (c == ' ')
+		sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
+	    else
+	    {
+		err = EINVAL; // 2-nd character must be a digit or a clockpoint
+		break;
+	    }
+	}
+	else if(c==' ') // space !!!after if(buf_index==TM1637_COLON_POSITION)
+	    sc->tm1637_digits[position++] = SIGN_EMPTY;
 	else
-		return EINVAL;
+	{
+	    err = EINVAL;
+	    break;
+	}
 
 	buf_index++;
     }
@@ -511,46 +528,6 @@ tm1637_msg_decode(struct tm1637_softc *sc)
     uprintf("]\n");
     uprintf("length: %d\n", buf_index);
 #endif
-
-    // Adjust length to position by decrease value by one
-    buf_index--;
-    // Check for errors. A variable 'buf_index' contains a length of the chunk
-    if (buf_index == TM1637_MAX_COLOM)
-    {
-	u_char clockpoint = sc->tm1637_msg->text[TM1637_COLON_POSITION];
-	if (clockpoint != ':' && clockpoint != ' ')
-	    return EINVAL;
-
-#ifdef DEBUG
-	uprintf("type: clock\n");
-#endif
-
-	// Mark an appropriate digit for a clockpoint
-	if(sc->tm1637_colon)
-	    sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
-	else
-	    sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
-
-	err = 0;
-    }
-    else if (buf_index < TM1637_MAX_COLOM)
-    {
-	if (sc->tm1637_msg->text[TM1637_COLON_POSITION] == ':')
-	    return EINVAL;
-
-#ifdef DEBUG
-	uprintf("type: number\n");
-#endif
-
-	// Add trailing spaces starting from last position
-	for (;position <= TM1637_MAX_COLOM; position++)
-	    sc->tm1637_digits[position] = 0x00;
-
-	err = 0;
-    }
-    else
-	return EINVAL;
-
 
     return err;
 }
@@ -686,11 +663,11 @@ tm1637_read(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
     size_t amount;
     struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
 
-    size_t text_len = sc->tm1637_msg->len + 1;
+    size_t text_len = sc->tm1637_buf->len + 1;
     amount = MIN(uio->uio_resid, 
 		 uio->uio_offset >= text_len ? 0 : text_len - uio->uio_offset);
 
-    if ((error = uiomove(sc->tm1637_msg->text, amount, uio)) != 0)
+    if ((error = uiomove(sc->tm1637_buf->text, amount, uio)) != 0)
 	uprintf("uiomove failed!\n");
 
     return (error);
@@ -700,40 +677,54 @@ static int
 tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 {
     int error;
-    size_t amount;
-    size_t available;
+    size_t amount, available;
     struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored on tm1637_attach()
 
     /*
      * We either write from the beginning or are appending -- do
      * not allow random access.
      */
-    if (uio->uio_offset != 0 && (uio->uio_offset != sc->tm1637_msg->len))
+#ifdef DEBUG
+    uprintf("dev_write\n");
+    uprintf("  uio_offset: %llu\n", uio->uio_offset);
+    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
+#endif
+    if (uio->uio_offset == 0)
+	sc->tm1637_buf->len = 0; // This is a new message, reset length
+    else if (uio->uio_offset != sc->tm1637_buf->len)
 	return (EINVAL);
 
-    // This is a new message, reset length
-    if (uio->uio_offset == 0)
-	sc->tm1637_msg->len = 0;
-
-    available = TM1637_BUFFERSIZE - sc->tm1637_msg->len;
+    available = TM1637_BUFFERSIZE - sc->tm1637_buf->len;
     if (uio->uio_resid > available)
 	return (EINVAL);
 
     // Copy the string in from user memory to kernel memory
     amount = MIN(uio->uio_resid, available);
 
-    error = uiomove(sc->tm1637_msg->text + uio->uio_offset, amount, uio);
+    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
 
     // Terminate the message by zero and set the length
-    sc->tm1637_msg->len = uio->uio_offset;
-    sc->tm1637_msg->text[sc->tm1637_msg->len] = 0;
+    sc->tm1637_buf->len = uio->uio_offset;
+    sc->tm1637_buf->text[sc->tm1637_buf->len] = 0;
+
+#ifdef DEBUG
+    uprintf("received: [");
+    for(size_t i = 0; i < sc->tm1637_buf->len; i++)
+    {
+	if (sc->tm1637_buf->text[i] == '\n')
+	    uprintf("\\n");
+	else
+	    uprintf("%c", sc->tm1637_buf->text[i]);
+    }
+    uprintf("]\n");
+#endif
 
     if (error != 0)
 	uprintf("Write failed: bad address!\n");
     else
     {
-	// Decode string from sc->tm1637_msg to sc->tm1637_msg
-	error = tm1637_msg_decode(sc);
+	// Decode sc->tm1637_buf
+	error = tm1637_msg_process(sc);
 	if (error == 0)
 	    tm1637_display_digits(sc);
 	else
@@ -757,7 +748,7 @@ tm1637_cleanup(struct tm1637_softc *sc)
     if (sc->tm1637_sdapin != NULL)
 	gpio_pin_release(sc->tm1637_sdapin);
 
-    free(sc->tm1637_msg, M_TM1637MSG);
+    free(sc->tm1637_buf, M_TM1637BUF);
     TM1637_LOCK_DESTROY(sc);
 }
 
@@ -846,7 +837,6 @@ tm1637_attach(device_t dev)
 
 
     sc->tm1637_brightness = TM1637_BRIGHT_DARKEST;
-    sc->tm1637_colon = false;
     sc->tm1637_cdev->si_drv1 = sc;
 
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
@@ -861,7 +851,7 @@ tm1637_attach(device_t dev)
 	"raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	&tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
 
-    sc->tm1637_msg = malloc(sizeof(*sc->tm1637_msg), M_TM1637MSG, M_WAITOK | M_ZERO);
+    sc->tm1637_buf = malloc(sizeof(*sc->tm1637_buf), M_TM1637BUF, M_WAITOK | M_ZERO);
 
     tm1637_display_clear(sc);
     tm1637_display_on(sc);
