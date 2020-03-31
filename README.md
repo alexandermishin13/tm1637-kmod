@@ -22,6 +22,7 @@ digits nor colon not changed
 * `12:31` - Only second digit (see above) will be transferred now;
 * `## ##` - Only second digit again, but even faster than previous one as no
 other digits compares would be made at all;
+* `  :  ` or ` ` - In 2nd case trailing spaces will be added;
 * `--:--` or `-- --` - It is an also possible combination (for a start
 decoration).
 
@@ -69,6 +70,7 @@ echo "12:30" > /dev/tm1637; sleep 1; echo "## #1" > /dev/tm1637
 Available symbols are:
 * digits [0..9];
 * minus sign;
+* space;
 * placeholder '#' for keep this position untouched;
 * ':' and ' ' in 3rd position for set or clear clockpoint;
 * Any other symbols leads to an error message.
@@ -76,8 +78,8 @@ Available symbols are:
 If at the 3rd position there is neither ':' nor ' ' (number format),
 then the clockpoint will be turned off.
 On the other hand, the clock format is strict and requires 5 characters:
-a colon or space in the third position and 4 digits or placeholders in other
-ones ('##:##').
+a colon or space in the third position and 4 digits, spaces, minus signs
+or placeholders in other ones ('##:##').
 
 You can change brightness by write a 0...7 digit to kernel variable. 0 is
 a darkest one.
@@ -91,8 +93,7 @@ sysctl dev.tm1637.0.on=0
 
 ## Bugs
 
-* You need to close the device before sending a new string (I think so.
-I didn't check it out)
+Do not know yet
 
 ## Status
 

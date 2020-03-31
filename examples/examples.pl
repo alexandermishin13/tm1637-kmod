@@ -7,7 +7,7 @@ my $dots = 0;
 # Off the display and close device
 sub signal_handler {
     seek C, 0, 0;
-    print C " \n"; # Will be trailed by spaces
+    print C " \n"; # Trailing spaces will be added
     close C;
     exit;
 };
