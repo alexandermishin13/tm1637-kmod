@@ -104,7 +104,7 @@ There are examples for Perl and Python in "examples/".
 
 ## Bugs
 
-Do not know yet.
+* Raspberry PI 2 needs a initialization of pins but it works.
 
 ## Status
 

@@ -1,0 +1,18 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2836";
+};
+
+&{/soc} {
+    tm1637@0 {
+	compatible = "tm1637";
+	gpios = <&gpio 20 0 /* scl */
+		 &gpio 21 0 /* sda */
+		>;
+	scl = <0>; // GPIO20 (38)
+	sda = <1>; // GPIO21 (40)
+	status = "okay";
+    };
+};
