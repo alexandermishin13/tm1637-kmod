@@ -66,7 +66,7 @@ SIMPLEBUS_PNP_INFO(compat_data);
 
 static device_method_t tm1637_methods[] = {
     /* Device interface */
-    DEVMETHOD(device_probe,		tm1637_probe),
+    DEVMETHOD(device_probe,	tm1637_probe),
     DEVMETHOD(device_attach,	tm1637_attach),
     DEVMETHOD(device_detach,	tm1637_detach),
 
@@ -734,24 +734,6 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
     return (error);
 }
 
-static void
-tm1637_cleanup(struct tm1637_softc *sc)
-{
-    device_delete_children(sc->tm1637_dev);
-
-    if (sc->tm1637_cdev != NULL)
-	destroy_dev(sc->tm1637_cdev);
-
-    if (sc->tm1637_sclpin != NULL)
-	gpio_pin_release(sc->tm1637_sclpin);
-
-    if (sc->tm1637_sdapin != NULL)
-	gpio_pin_release(sc->tm1637_sdapin);
-
-    free(sc->tm1637_buf, M_TM1637BUF);
-    TM1637_LOCK_DESTROY(sc);
-}
-
 static int
 tm1637_probe(device_t dev)
 {
@@ -772,14 +754,20 @@ static int
 tm1637_detach(device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
-    int err;
 
     tm1637_display_off(sc);
 
-    if ((err = bus_generic_detach(dev)) != 0)
-	return (err);
+    if (sc->tm1637_cdev != NULL)
+	destroy_dev(sc->tm1637_cdev);
 
-    tm1637_cleanup(sc);
+    if (sc->tm1637_sclpin != NULL)
+	gpio_pin_release(sc->tm1637_sclpin);
+
+    if (sc->tm1637_sdapin != NULL)
+	gpio_pin_release(sc->tm1637_sdapin);
+
+    free(sc->tm1637_buf, M_TM1637BUF);
+    TM1637_LOCK_DESTROY(sc);
 
     return (0);
 }
@@ -787,15 +775,14 @@ tm1637_detach(device_t dev)
 static int
 tm1637_attach(device_t dev)
 {
-    struct tm1637_softc	*sc;
+    struct tm1637_softc		*sc;
     struct sysctl_ctx_list	*ctx;
-    struct sysctl_oid	*tree;
+    struct sysctl_oid		*tree;
     int err;
 
     sc = device_get_softc(dev);
     ctx = device_get_sysctl_ctx(dev);
     tree = device_get_sysctl_tree(dev);
-    TM1637_LOCK_INIT(sc);
 
     sc->tm1637_dev = dev;
 
@@ -809,7 +796,6 @@ tm1637_attach(device_t dev)
 
     if (err != 0) {
 	device_printf(sc->tm1637_dev, "no pins configured\n");
-	tm1637_cleanup(sc);
 	return (ENXIO);
     }
 
@@ -835,7 +821,6 @@ tm1637_attach(device_t dev)
 	return (err);
     }
 
-
     sc->tm1637_brightness = TM1637_BRIGHT_DARKEST;
     sc->tm1637_cdev->si_drv1 = sc;
 
@@ -851,10 +836,11 @@ tm1637_attach(device_t dev)
 	"raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	&tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
 
+    TM1637_LOCK_INIT(sc);
     sc->tm1637_buf = malloc(sizeof(*sc->tm1637_buf), M_TM1637BUF, M_WAITOK | M_ZERO);
 
     tm1637_display_clear(sc);
     tm1637_display_on(sc);
 
-    return (bus_generic_attach(dev));
+    return (0);
 }
