@@ -104,8 +104,9 @@ There are examples for Perl and Python in "examples/".
 
 ## Bugs
 
-* Raspberry PI 2 needs a initialization of pins but it works.
+Do not know yet.
 
 ## Status
 
 Current status of the driver is "alpha".
+Driver work tested on Orange Pi PC and Raspberry Pi 2.

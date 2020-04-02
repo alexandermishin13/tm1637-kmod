@@ -794,6 +794,12 @@ tm1637_attach(device_t dev)
 	err = tm1637_setup_fdt_pins(sc);
 #endif
 
+    if (err != 0)
+    {
+	gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+	gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
+    }
+
     if (err != 0) {
 	device_printf(sc->tm1637_dev, "no pins configured\n");
 	return (ENXIO);
