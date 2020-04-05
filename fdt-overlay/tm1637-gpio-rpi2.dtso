@@ -5,9 +5,19 @@
     compatible = "brcm,bcm2836";
 };
 
+&gpio {
+    tm1637_pins: tm1637_pins {
+	brcm,pins = <20 21>; // GPIO20, GPIO21
+	brcm,function = <0x1>; // out (initially)
+	brcm,pull = <0x0>;
+    };
+};
+
 &{/soc} {
     tm1637@0 {
 	compatible = "tm1637";
+	pinctrl-names = "default";
+	pinctrl-0 = <&tm1637_pins>;
 	gpios = <&gpio 20 0 /* scl */
 		 &gpio 21 0 /* sda */
 		>;
