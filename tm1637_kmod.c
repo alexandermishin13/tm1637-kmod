@@ -61,7 +61,7 @@ static struct ofw_compat_data compat_data[] = {
     {NULL,     false}
 };
 
-OFWBUS_PNP_INFO(compat_data);
+//OFWBUS_PNP_INFO(compat_data);
 SIMPLEBUS_PNP_INFO(compat_data);
 
 static device_method_t tm1637_methods[] = {
