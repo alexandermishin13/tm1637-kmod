@@ -50,11 +50,13 @@
 
 struct tm1637_softc {
     device_t		 tm1637_dev;
+    device_t		 tm1637_busdev;
     gpio_pin_t		 tm1637_sclpin;
     gpio_pin_t		 tm1637_sdapin;
     uint8_t		 tm1637_brightness;
     uint8_t		 tm1637_on;
     uint8_t		 tm1637_raw_format;
+    bool		 tm1637_needupdate;
     bool		 tm1637_inuse;
     u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // ??? 1 byte overflow
     u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
@@ -65,5 +67,9 @@ struct tm1637_softc {
 };
 
 MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 module");
+
+static int tm1637_probe(device_t);
+static int tm1637_attach(device_t);
+static int tm1637_detach(device_t);
 
 #endif /* _TM1637_KMOD_H_ */
