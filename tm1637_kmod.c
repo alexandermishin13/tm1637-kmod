@@ -345,33 +345,12 @@ tm1637_restore_digits(struct tm1637_softc *sc)
 }
 
 /*
- * Send to display all 4 digits (6 bytes will be sended)
+ * Display part of the full row of digits
  */
 static void
-tm1637_display_digits(struct tm1637_softc *sc)
+tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 {
-    size_t first = TM1637_MAX_COLOM, position, last = 0;
-
-    // Finding a range of changed digits
-#ifdef DEBUG
-    uprintf("changed: ");
-#endif
-    for(position=0; position<TM1637_MAX_COLOM; position++)
-    {
-	if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
-	{
-#ifdef DEBUG
-	    uprintf("%i[%02x->%02x]", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
-#endif
-	    sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
-
-	    // Last changed digit
-	    last = position;
-	    // First changed digit
-	    if (first == TM1637_MAX_COLOM)
-		first = position;
-	}
-    }
+    size_t position;
 
 #ifdef DEBUG
     uprintf("\n");
@@ -407,20 +386,62 @@ tm1637_display_digits(struct tm1637_softc *sc)
 }
 
 /*
+ * Send to display all 4 digits (6 bytes will be sended)
+ */
+static void
+tm1637_update_display(struct tm1637_softc *sc)
+{
+    size_t first = TM1637_MAX_COLOM, position, last = 0;
+
+    // Finding a range of changed digits
+#ifdef DEBUG
+    uprintf("changed: ");
+#endif
+    for(position=0; position<TM1637_MAX_COLOM; position++)
+    {
+	if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
+	{
+#ifdef DEBUG
+	    uprintf("%i[%02x->%02x]", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
+#endif
+	    sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
+
+	    // Last changed digit
+	    last = position;
+	    // First changed digit
+	    if (first == TM1637_MAX_COLOM)
+		first = position;
+	}
+    }
+
+    // Display an optimized part of row of digits
+    // or mark it for update if it is off
+    if(sc->tm1637_on)
+	tm1637_display_digits(sc, first, last);
+    else if(last > first)
+	sc->tm1637_needupdate = true;
+}
+
+/*
  * Writes all blanks to a display
  */
 static void
-tm1637_display_clear(struct tm1637_softc *sc)
+tm1637_clear_display(struct tm1637_softc *sc)
 {
-    size_t position = TM1637_MAX_COLOM;
+    size_t position = TM1637_MAX_COLOM - 1;
 
     // Display all blanks
     while(position--)
     {
 	sc->tm1637_digits[position] = SIGN_EMPTY;
-	sc->tm1637_digits_prev[position] = 0xff; // ... forced
+	sc->tm1637_digits_prev[position] = SIGN_EMPTY;
     }
-    tm1637_display_digits(sc);
+
+    // If display is off right now then mark it for update when it is on
+    if(sc->tm1637_on)
+	tm1637_display_digits(sc, 0, TM1637_MAX_COLOM - 1);
+    else
+	sc->tm1637_needupdate = true;
 }
 
 /*
@@ -429,6 +450,11 @@ tm1637_display_clear(struct tm1637_softc *sc)
 static void
 tm1637_display_on(struct tm1637_softc *sc)
 {
+    if(sc->tm1637_needupdate)
+    {
+	tm1637_display_digits(sc, 0, TM1637_MAX_COLOM - 1);
+	sc->tm1637_needupdate = false;
+    }
     sc->tm1637_on = 1;
     tm1637_gpio_start(sc); // Start a byte
     tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
@@ -726,7 +752,7 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 	// Decode sc->tm1637_buf
 	error = tm1637_msg_process(sc);
 	if (error == 0)
-	    tm1637_display_digits(sc);
+	    tm1637_update_display(sc);
 	else
 	    tm1637_restore_digits(sc);
     }
@@ -845,7 +871,7 @@ tm1637_attach(device_t dev)
     TM1637_LOCK_INIT(sc);
     sc->tm1637_buf = malloc(sizeof(*sc->tm1637_buf), M_TM1637BUF, M_WAITOK | M_ZERO);
 
-    tm1637_display_clear(sc);
+    tm1637_clear_display(sc);
     tm1637_display_on(sc);
 
     return (0);
