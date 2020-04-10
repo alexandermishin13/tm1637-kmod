@@ -8,7 +8,8 @@
 &pio {
     tm1637_pins: tm1637_pins {
 	allwinner,pins = "PC4", "PC7";
-	allwinner,function = "gpio_out"; // out (initially)
+	allwinner,function = "GPIO out"; // out (initially)
+	allwinner,pull = "none";
     };
 };
 

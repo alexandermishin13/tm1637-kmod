@@ -7,9 +7,9 @@
 
 &gpio {
     tm1637_pins: tm1637_pins {
-	brcm,pins = <20 21>; // GPIO20, GPIO21
-	brcm,function = <0x1>; // out (initially)
-	brcm,pull = <0x0>;
+	brcm,pins = "GPIO20", "GPIO21"; // GPIO20, GPIO21
+	brcm,function = "GPIO out"; // out (initially)
+	brcm,pull = "none";
     };
 };
 
