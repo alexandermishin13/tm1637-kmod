@@ -10,6 +10,7 @@ SRCS+=	\
 	gpiobus_if.h \
 	ofw_bus_if.h \
 	opt_platform.h \
+	fdt_pinctrl_if.h \
 
 CFLAGS+=  -I. -I${SRCTOP}/sys/dev/gpio/
 #CFLAGS+=  -DDEBUG

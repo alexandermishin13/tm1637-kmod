@@ -32,6 +32,7 @@
 #include <sys/gpio.h>
 
 #include <dev/gpio/gpiobusvar.h>
+#include <dev/fdt/fdt_pinctrl.h>
 
 #include "tm1637_kmod.h"
 
@@ -125,6 +126,16 @@ tm1637_setup_fdt_pins(struct tm1637_softc *sc)
 	    return (err);
 	}
     }
+
+    /* Get pin configuration from pinctrl-0 and ignore errors */
+    err = fdt_pinctrl_configure(sc->tm1637_dev, 0);
+#ifdef DEBUG
+    if (err != 0)
+	uprintf("No valid pinctrl-0 configuration. Error: %d\n", err);
+    else
+	uprintf("pinctrl-0 configration is OK\n");
+#endif
+
     return (0);
 }
 #endif /* FDT */
@@ -819,12 +830,6 @@ tm1637_attach(device_t dev)
     if (err != 0)
 	err = tm1637_setup_fdt_pins(sc);
 #endif
-
-    if (err != 0)
-    {
-	gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
-	gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
-    }
 
     if (err != 0) {
 	device_printf(sc->tm1637_dev, "no pins configured\n");
