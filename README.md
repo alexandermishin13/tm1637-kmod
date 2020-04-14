@@ -69,6 +69,30 @@ Now the display can be easy used from PHP or Python or anything alse.
 
 ## Usage
 
+You can change by write to a kernel variable:
+* `brightness` 0...7 digit, 0 is a darkest one.
+* `mode` 0 or 1. 0 is a string mode, 1 is a bytes of segments to light mode.
+* `on` on ot off the display (brightness level keeps its level).
+
+```
+sysctl dev.tm1637.0.brightness=7
+sysctl dev.tm1637.0.on=0
+sysctl dev.tm1637.0.mode=1
+```
+
+As said above You can switch the driver to one of two modes:
+* A `string mode`, when You write to the device up to five chars of digits,
+minus and hash signs, spaces and colon followed by "\n". You need to seek
+to zero or close and reopen device any time before You can write a new string.
+(/bin/echo do it any time).
+* A `bytes of segments mode`, when You write to the device up to four bytes of
+segments to light and also need to seek any time but to any of four byte
+positons.
+No matter what device mode you select, the driver will not send leading and
+trailing unchanged bytes to the display.
+
+### String mode
+
 You can open a character device `/dev/tm1637` and write to it a string about
 a five characters (format, ##:##).
 ```
@@ -88,15 +112,13 @@ On the other hand, the clock format is strict and requires 5 characters:
 a colon or space in the third position and 4 digits, spaces, minus signs
 or placeholders in other ones ('##:##').
 
-You can change brightness by write a 0...7 digit to kernel variable. 0 is
-a darkest one.
-Also You can off or on the display by kernel variable (brightness level keeps
-until the display is on again).
+### Bytes of segments mode
 
-```
-sysctl dev.tm1637.0.brightness=7
-sysctl dev.tm1637.0.on=0
-```
+You can write up to four bytes of seven segments (for example: `0x06` is a "1"
+and `0x7f` is a "8") w/o "\n" at the end. For a colon in the middle of display
+set an eight bit of second byte and unset it for turn the colon off. You can
+write all four byte at once or set a position by seek() and write one or more
+bytes.
 
 ## Examples
 
@@ -106,7 +128,13 @@ There are examples for Perl and Python in "examples/".
 
 Do not know yet.
 
+## To do
+
+* To add optional default parameters for a brightness and a mode to fdt-overlays.
+* To check if I could reset to zero a file pointer position after a string 
+successful write (Using a seek() by driver itself).
+
 ## Status
 
 Current status of the driver is "alpha".
-Driver work tested on Orange Pi PC and Raspberry Pi 2.
+The driver work tested on Orange Pi PC and Raspberry Pi 2.
