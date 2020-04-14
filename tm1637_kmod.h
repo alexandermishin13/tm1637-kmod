@@ -37,7 +37,7 @@
 
 #define	TM1637_COLON_POSITION	2 // 2-nd character
 #define TM1637_MAX_COLOM	4
-#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 3 // For ':', '\n' and '\0'
+#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2 // For ':' and '\n'
 
 #define TM1637_LOCK_INIT(sc)	\
     mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
@@ -48,6 +48,12 @@
 #define TM1637_UNLOCK(sc)	\
     mtx_unlock(&(sc)->lock)
 
+struct s_message {
+    char text[TM1637_BUFFERSIZE + 1]; // ??? +1
+    int offset;
+    int len;
+};
+
 struct tm1637_softc {
     device_t		 tm1637_dev;
     device_t		 tm1637_busdev;
@@ -55,7 +61,7 @@ struct tm1637_softc {
     gpio_pin_t		 tm1637_sdapin;
     uint8_t		 tm1637_brightness;
     uint8_t		 tm1637_on;
-    uint8_t		 tm1637_raw_format;
+    uint8_t		 tm1637_mode;
     bool		 tm1637_needupdate;
     bool		 tm1637_inuse;
     u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // ??? 1 byte overflow

@@ -45,11 +45,6 @@ static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
 
-struct s_message {
-    char text[TM1637_BUFFERSIZE + 1]; // ??? +1
-    int len;
-};
-
 static void tm1637_display_on(struct tm1637_softc *sc);
 static void tm1637_display_off(struct tm1637_softc *sc);
 
@@ -201,13 +196,13 @@ tm1637_set_on_sysctl(SYSCTL_HANDLER_ARGS)
 }
 
 /*
- * Sysctl parameter: raw_format
+ * Sysctl parameter: mode
  */
 static int
-tm1637_raw_format_sysctl(SYSCTL_HANDLER_ARGS)
+tm1637_mode_sysctl(SYSCTL_HANDLER_ARGS)
 {
     struct tm1637_softc *sc = arg1;
-    uint8_t _raw = sc->tm1637_raw_format;
+    uint8_t _raw = sc->tm1637_mode;
     int error = 0;
 
     error = SYSCTL_OUT(req, &_raw, sizeof(_raw));
@@ -221,10 +216,8 @@ tm1637_raw_format_sysctl(SYSCTL_HANDLER_ARGS)
     switch(_raw)
     {
 	case 0:
-//	    tm1637_display_off(sc);
-	    break;
 	case 1:
-//	    tm1637_display_on(sc);
+	    sc->tm1637_mode = _raw;
 	    break;
 	default:
 	    error = EINVAL;
@@ -300,41 +293,7 @@ tm1637_gpio_stop(struct tm1637_softc *sc)
 }
 
 /*
- * Send to display a given digit (3 bytes will be sended)
-static void
-tm1637_display_digit(struct tm1637_softc *sc, size_t position)
-{
-    if (position >= TM1637_MAX_COLOM)
-	return;
-
-    if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
-    {
-
-#ifdef DEBUG
-	uprintf("changed: %i[%02x->%02x]\n", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
-#endif
-
-	sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
-
-	tm1637_gpio_start(sc); // Start a byte
-	tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send an address autoincrement command to tm1637
-	tm1637_gpio_stop(sc);  // Stop a byte
-
-	tm1637_gpio_start(sc); // Start a byte sequence
-	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + position); // Send a start address to tm1637
-
-#ifdef DEBUG
-	uprintf("display: %i[    %02x]\n", position, sc->tm1637_digits[position]);
-#endif
-
-	tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
-	tm1637_gpio_stop(sc); // Stop a byte sequence
-    }
-}
- */
-
-/*
- * Restore last digits
+ * Restore previous row of digits
  */
 static void
 tm1637_restore_digits(struct tm1637_softc *sc)
@@ -485,7 +444,84 @@ tm1637_display_off(struct tm1637_softc *sc)
 }
 
 static int
-tm1637_msg_process(struct tm1637_softc *sc)
+tm1637_process_segs(struct tm1637_softc *sc)
+{
+    int err = 0;
+
+    if(sc->tm1637_buf->len > TM1637_MAX_COLOM)
+        return EINVAL;
+
+#ifdef DEBUG
+    uprintf("processed: [");
+#endif
+
+    // Process only chars from starting offset to len-1
+    int position = sc->tm1637_buf->offset;
+    while(position < sc->tm1637_buf->len)
+    {
+	u_char c = sc->tm1637_buf->text[position];
+	sc->tm1637_digits[position] = c;
+	position++;
+
+#ifdef DEBUG
+	uprintf("%02x", c);
+#endif
+
+    }
+
+#ifdef DEBUG
+    uprintf("]\n");
+    uprintf("  offset: %d\n", sc->tm1637_buf->offset);
+    uprintf("  length: %d\n", sc->tm1637_buf->len);
+#endif
+
+    return err;
+}
+
+static int
+tm1637_write_segs(struct tm1637_softc *sc, struct uio *uio)
+{
+    int error;
+    size_t available;
+
+    available = TM1637_BUFFERSIZE - 1 - uio->uio_offset;
+    if (uio->uio_resid > available)
+	return (EINVAL);
+
+    // Copy the string in from user memory to kernel memory
+
+#ifdef DEBUG
+    uprintf("dev_write\n");
+    uprintf("  uio_offset: %llu\n", uio->uio_offset);
+#endif
+
+    // Set a first char position
+    sc->tm1637_buf->offset = uio->uio_offset;
+
+    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, uio->uio_resid, uio);
+
+    // Set the length
+    sc->tm1637_buf->len = uio->uio_offset;
+
+#ifdef DEBUG
+    uprintf("  tm1637_buf->text: [");
+    for(size_t i = 0; i < sc->tm1637_buf->len; i++)
+    {
+	if (sc->tm1637_buf->text[i] == '\n')
+	    uprintf("\\n");
+	else
+	    uprintf("%c", sc->tm1637_buf->text[i]);
+    }
+    uprintf("]\n");
+    uprintf("  tm1637_buf->offset: %d\n", sc->tm1637_buf->offset);
+    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
+#endif
+
+    return (error);
+}
+
+static int
+tm1637_process_chars(struct tm1637_softc *sc)
 {
     size_t buf_index = 0, position = 0;
     //int err = EJUSTRETURN;
@@ -563,10 +599,55 @@ tm1637_msg_process(struct tm1637_softc *sc)
 
 #ifdef DEBUG
     uprintf("]\n");
-    uprintf("length: %d\n", buf_index);
+    uprintf("  length: %d\n", buf_index);
 #endif
 
     return err;
+}
+
+static int
+tm1637_write_chars(struct tm1637_softc *sc, struct uio *uio)
+{
+    int error;
+    size_t amount, available;
+
+    /*
+     * We either write from the beginning or are appending -- do
+     * not allow random access.
+     */
+    if (uio->uio_offset == 0)
+	sc->tm1637_buf->len = 0; // This is a new message, reset length
+    else if (uio->uio_offset != sc->tm1637_buf->len)
+	return (EINVAL);
+
+    // Copy the string in from user memory to kernel memory
+    available = TM1637_BUFFERSIZE - 1 - uio->uio_offset;
+    amount = MIN(uio->uio_resid, available);
+
+#ifdef DEBUG
+    uprintf("dev_write\n");
+    uprintf("  uio_offset: %llu\n", uio->uio_offset);
+#endif
+
+    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
+
+    // Set the length
+    sc->tm1637_buf->len = uio->uio_offset;
+
+#ifdef DEBUG
+    uprintf("  tm1637_buf->text: [");
+    for(size_t i = 0; i < sc->tm1637_buf->len; i++)
+    {
+	if (sc->tm1637_buf->text[i] == '\n')
+	    uprintf("\\n");
+	else
+	    uprintf("%c", sc->tm1637_buf->text[i]);
+    }
+    uprintf("]\n");
+    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
+#endif
+
+    return (error);
 }
 
 static int
@@ -714,59 +795,40 @@ static int
 tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 {
     int error;
-    size_t amount, available;
+
     struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored on tm1637_attach()
 
-    /*
-     * We either write from the beginning or are appending -- do
-     * not allow random access.
-     */
-#ifdef DEBUG
-    uprintf("dev_write\n");
-    uprintf("  uio_offset: %llu\n", uio->uio_offset);
-    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
-#endif
-    if (uio->uio_offset == 0)
-	sc->tm1637_buf->len = 0; // This is a new message, reset length
-    else if (uio->uio_offset != sc->tm1637_buf->len)
-	return (EINVAL);
-
-    available = TM1637_BUFFERSIZE - sc->tm1637_buf->len;
-    if (uio->uio_resid > available)
-	return (EINVAL);
-
-    // Copy the string in from user memory to kernel memory
-    amount = MIN(uio->uio_resid, available);
-
-    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
-
-    // Terminate the message by zero and set the length
-    sc->tm1637_buf->len = uio->uio_offset;
-    sc->tm1637_buf->text[sc->tm1637_buf->len] = 0;
-
-#ifdef DEBUG
-    uprintf("received: [");
-    for(size_t i = 0; i < sc->tm1637_buf->len; i++)
+    switch(sc->tm1637_mode)
     {
-	if (sc->tm1637_buf->text[i] == '\n')
-	    uprintf("\\n");
-	else
-	    uprintf("%c", sc->tm1637_buf->text[i]);
+	case 0:
+	    error = tm1637_write_chars(sc, uio);
+
+	    if (error == 0)
+	    {
+		// Decode sc->tm1637_buf
+		error = tm1637_process_chars(sc);
+		if (error == 0)
+		    tm1637_update_display(sc);
+		else
+		    tm1637_restore_digits(sc);
+	    }
+
+	    break;
+	case 1:
+	    error = tm1637_write_segs(sc, uio);
+
+	    if (error == 0)
+	    {
+		error = tm1637_process_segs(sc);
+		if (error == 0)
+		    tm1637_update_display(sc); // No any restore needed
+	    }
+
+	    break;
     }
-    uprintf("]\n");
-#endif
 
     if (error != 0)
 	uprintf("Write failed: bad address!\n");
-    else
-    {
-	// Decode sc->tm1637_buf
-	error = tm1637_msg_process(sc);
-	if (error == 0)
-	    tm1637_update_display(sc);
-	else
-	    tm1637_restore_digits(sc);
-    }
 
     return (error);
 }
@@ -870,8 +932,8 @@ tm1637_attach(device_t dev)
 	&tm1637_set_on_sysctl, "CU", "display is on or off");
 
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	"raw_format", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
-	&tm1637_raw_format_sysctl, "CU", "4 bytes of digits segments");
+	"mode", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	&tm1637_mode_sysctl, "CU", "Type of input 0 for digits, colon etc., 1 for bytes of segments");
 
     TM1637_LOCK_INIT(sc);
     sc->tm1637_buf = malloc(sizeof(*sc->tm1637_buf), M_TM1637BUF, M_WAITOK | M_ZERO);
