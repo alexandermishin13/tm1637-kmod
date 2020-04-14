@@ -221,10 +221,8 @@ tm1637_raw_format_sysctl(SYSCTL_HANDLER_ARGS)
     switch(_raw)
     {
 	case 0:
-//	    tm1637_display_off(sc);
-	    break;
 	case 1:
-//	    tm1637_display_on(sc);
+	    sc->tm1637_raw_format = _raw;
 	    break;
 	default:
 	    error = EINVAL;
@@ -485,7 +483,39 @@ tm1637_display_off(struct tm1637_softc *sc)
 }
 
 static int
-tm1637_msg_process(struct tm1637_softc *sc)
+tm1637_segs_process(struct tm1637_softc *sc)
+{
+    size_t position = 0;
+    int err = 0;
+
+    if(sc->tm1637_buf->len != TM1637_MAX_COLOM)
+        return EINVAL;
+
+#ifdef DEBUG
+    uprintf("processed: [");
+#endif
+
+    while(position < sc->tm1637_buf->len)
+    {
+	u_char c = sc->tm1637_buf->text[position];
+	sc->tm1637_digits[position] = c;
+	position++;
+#ifdef DEBUG
+	uprintf("%02x", c);
+#endif
+
+    }
+
+#ifdef DEBUG
+    uprintf("]\n");
+    uprintf("length: %d\n", position);
+#endif
+
+    return err;
+}
+
+static int
+tm1637_chars_process(struct tm1637_softc *sc)
 {
     size_t buf_index = 0, position = 0;
     //int err = EJUSTRETURN;
@@ -711,41 +741,29 @@ tm1637_read(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 }
 
 static int
-tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
+tm1637_write_segs(struct tm1637_softc *sc, struct uio *uio)
 {
     int error;
-    size_t amount, available;
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored on tm1637_attach()
+    size_t available;
 
-    /*
-     * We either write from the beginning or are appending -- do
-     * not allow random access.
-     */
-#ifdef DEBUG
-    uprintf("dev_write\n");
-    uprintf("  uio_offset: %llu\n", uio->uio_offset);
-    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
-#endif
-    if (uio->uio_offset == 0)
-	sc->tm1637_buf->len = 0; // This is a new message, reset length
-    else if (uio->uio_offset != sc->tm1637_buf->len)
-	return (EINVAL);
-
-    available = TM1637_BUFFERSIZE - sc->tm1637_buf->len;
+    available = TM1637_BUFFERSIZE - 1 - uio->uio_offset;
     if (uio->uio_resid > available)
 	return (EINVAL);
 
     // Copy the string in from user memory to kernel memory
-    amount = MIN(uio->uio_resid, available);
-
-    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
-
-    // Terminate the message by zero and set the length
-    sc->tm1637_buf->len = uio->uio_offset;
-    sc->tm1637_buf->text[sc->tm1637_buf->len] = 0;
 
 #ifdef DEBUG
-    uprintf("received: [");
+    uprintf("dev_write\n");
+    uprintf("  uio_offset: %llu\n", uio->uio_offset);
+#endif
+
+    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, uio->uio_resid, uio);
+
+    // Set the length
+    sc->tm1637_buf->len = uio->uio_offset;
+
+#ifdef DEBUG
+    uprintf("  tm1637_buf->text: [");
     for(size_t i = 0; i < sc->tm1637_buf->len; i++)
     {
 	if (sc->tm1637_buf->text[i] == '\n')
@@ -754,19 +772,96 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 	    uprintf("%c", sc->tm1637_buf->text[i]);
     }
     uprintf("]\n");
+    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
 #endif
+
+
+    return (error);
+}
+
+static int
+tm1637_write_chars(struct tm1637_softc *sc, struct uio *uio)
+{
+    int error;
+    size_t amount, available;
+
+    /*
+     * We either write from the beginning or are appending -- do
+     * not allow random access.
+     */
+    if (uio->uio_offset == 0)
+	sc->tm1637_buf->len = 0; // This is a new message, reset length
+    else if (uio->uio_offset != sc->tm1637_buf->len)
+	return (EINVAL);
+
+    // Copy the string in from user memory to kernel memory
+    available = TM1637_BUFFERSIZE - 1 - uio->uio_offset;
+    amount = MIN(uio->uio_resid, available);
+
+#ifdef DEBUG
+    uprintf("dev_write\n");
+    uprintf("  uio_offset: %llu\n", uio->uio_offset);
+#endif
+
+    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
+
+    // Set the length
+    sc->tm1637_buf->len = uio->uio_offset;
+
+#ifdef DEBUG
+    uprintf("  tm1637_buf->text: [");
+    for(size_t i = 0; i < sc->tm1637_buf->len; i++)
+    {
+	if (sc->tm1637_buf->text[i] == '\n')
+	    uprintf("\\n");
+	else
+	    uprintf("%c", sc->tm1637_buf->text[i]);
+    }
+    uprintf("]\n");
+    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
+#endif
+
+    return (error);
+}
+
+static int
+tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
+{
+    int error;
+
+    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored on tm1637_attach()
+
+    switch(sc->tm1637_raw_format)
+    {
+	case 0:
+	    error = tm1637_write_chars(sc, uio);
+
+	    if (error == 0)
+	    {
+		// Decode sc->tm1637_buf
+		error = tm1637_chars_process(sc);
+		if (error == 0)
+		    tm1637_update_display(sc);
+		else
+		    tm1637_restore_digits(sc);
+	    }
+
+	    break;
+	case 1:
+	    error = tm1637_write_segs(sc, uio);
+
+	    if (error == 0)
+	    {
+		error = tm1637_segs_process(sc);
+		if (error == 0)
+		    tm1637_update_display(sc); // No any restore needed
+	    }
+
+	    break;
+    }
 
     if (error != 0)
 	uprintf("Write failed: bad address!\n");
-    else
-    {
-	// Decode sc->tm1637_buf
-	error = tm1637_msg_process(sc);
-	if (error == 0)
-	    tm1637_update_display(sc);
-	else
-	    tm1637_restore_digits(sc);
-    }
 
     return (error);
 }
