@@ -621,7 +621,7 @@ tm1637_write_chars(struct tm1637_softc *sc, struct uio *uio)
 	return (EINVAL);
 
     // Copy the string in from user memory to kernel memory
-    available = TM1637_BUFFERSIZE - 1 - uio->uio_offset;
+    available = TM1637_BUFFERSIZE - uio->uio_offset;
     amount = MIN(uio->uio_resid, available);
 
 #ifdef DEBUG
