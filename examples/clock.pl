@@ -6,9 +6,7 @@ my $dots = 0;
 
 # Off the display and close device
 sub signal_handler {
-    seek C, 0, 0;
-    print C " \n"; # Trailing spaces will be added
-    close C;
+    print C "\n"; # Trailing spaces will be added
     exit;
 };
 
@@ -28,14 +26,17 @@ sleep(1);
 # Main loop
 while(1) {
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
-    seek C, 0, 0;
     if ($dots == 0) {
-      printf C "%02s %02s\n", $hour, $min;
+      printf C "%02d %02d\n", $hour, $min;
     }
     else {
-      printf C "%02s:%02s\n", $hour, $min;
+      printf C "%02d:%02d\n", $hour, $min;
     }
     $dots = abs(--$dots);
     sleep(1);
 }
-close C;
+
+# Always close the device before exit.
+END {
+    close C;
+}

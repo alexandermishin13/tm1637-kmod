@@ -1,6 +1,6 @@
 #!/usr/local/bin/python3.7
 
-import time
+import sys, time
 
 colon = True;
 
@@ -9,8 +9,7 @@ if __name__ == "__main__":
 
         """ A nice looking clock starting screen for a second
         """
-        clock.seek(0, 0)
-        print("--:--", file=clock)
+        print("--:--", file=clock, flush=True)
         time.sleep(1)
 
         while True:
@@ -18,17 +17,15 @@ if __name__ == "__main__":
                 """ Write the current time line once per second
                     w/ and w/out a colon alternately
                 """
-                clock.seek(0, 0)
                 if colon:
-                    print(time.strftime("%H:%M"), file=clock)
+                    print(time.strftime("%H:%M"), file=clock, flush=True)
                 else:
-                    print(time.strftime("%H %M"), file=clock)
+                    print(time.strftime("%H %M"), file=clock, flush=True)
                 colon = not colon
                 time.sleep(1)
 
             except KeyboardInterrupt:
                 """ Blank the display
                 """
-                clock.seek(0, 0)
-                print(" ", file=clock)
-                raise
+                print("", file=clock, flush=True)
+                sys.exit()

@@ -5,7 +5,7 @@ trap ctrl_c INT
 
 ctrl_c() {
   # Off the display and exit
-  echo " " > /dev/tm1637
+  echo "" > /dev/tm1637
   exit
 }
 
