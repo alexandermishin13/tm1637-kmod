@@ -81,15 +81,15 @@ sysctl dev.tm1637.0.mode=1
 ```
 
 As said above You can switch the driver to one of two modes:
-* A `string mode`, when You write to the device up to five chars of digits,
-minus and hash signs, spaces and colon followed by "\n". You need to seek
-to zero or close and reopen device any time before You can write a new string.
-(/bin/echo do it any time).
-* A `bytes of segments mode`, when You write to the device up to four bytes of
-segments to light and also need to seek any time but to any of four byte
-positons.
-No matter what device mode you select, the driver will not send leading and
-trailing unchanged bytes to the display.
+* A `string mode` in which You write to the device up to five chars of digits,
+minus and hash signs, spaces and colon followed by "\n". The device ignore
+a file position pointer - You do not need to use a `seek()`, but You need to
+write a whole string in one write operation.
+* A `bytes of segments mode` in which you write up to four bytes of digit
+segments to a device. You should also always use `seek()` for the starting
+position from which you want to start to write.
+No matter what device mode you select, the driver will not re-send unchenged
+leading and trailing bytes to the display.
 
 ### String mode
 
@@ -130,9 +130,8 @@ Do not know yet.
 
 ## To do
 
-* To add optional default parameters for a brightness and a mode to fdt-overlays.
-* To check if I could reset to zero a file pointer position after a string 
-successful write (Using a seek() by driver itself).
+* Add optional default parameters for a brightness and a mode to fdt-overlays;
+* Check if I could make a `\n` at the end in string mode optional.
 
 ## Status
 

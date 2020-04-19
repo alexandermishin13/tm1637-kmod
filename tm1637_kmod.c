@@ -202,22 +202,22 @@ static int
 tm1637_mode_sysctl(SYSCTL_HANDLER_ARGS)
 {
     struct tm1637_softc *sc = arg1;
-    uint8_t _raw = sc->tm1637_mode;
+    uint8_t _mode = sc->tm1637_mode;
     int error = 0;
 
-    error = SYSCTL_OUT(req, &_raw, sizeof(_raw));
+    error = SYSCTL_OUT(req, &_mode, sizeof(_mode));
     if (error != 0 || req->newptr == NULL)
 	return (error);
 
-    error = SYSCTL_IN(req, &_raw, sizeof(_raw));
+    error = SYSCTL_IN(req, &_mode, sizeof(_mode));
     if (error != 0)
 	return (error);
 
-    switch(_raw)
+    switch(_mode)
     {
 	case 0:
 	case 1:
-	    sc->tm1637_mode = _raw;
+	    sc->tm1637_mode = _mode;
 	    break;
 	default:
 	    error = EINVAL;
@@ -482,23 +482,40 @@ static int
 tm1637_write_segs(struct tm1637_softc *sc, struct uio *uio)
 {
     int error;
-    size_t available;
+    size_t amount;
 
-    available = TM1637_BUFFERSIZE - 1 - uio->uio_offset;
-    if (uio->uio_resid > available)
-	return (EINVAL);
+    // Check a file current position which an user set by seek()
+    
+    if (uio->uio_offset >= 0)
+    {
+	if(uio->uio_offset >= TM1637_MAX_COLOM)
+	    return EINVAL;
+    }
+    else
+    {
+	if(uio->uio_offset >= -TM1637_MAX_COLOM)
+	    uio->uio_offset = TM1637_MAX_COLOM + uio->uio_offset;
+	else
+	    return EINVAL;
+    }
+
+/*
+    if (uio->uio_offset < 0 && uio->uio_offset >= TM1637_MAX_COLOM)
+	return (error);
+*/
 
     // Copy the string in from user memory to kernel memory
+    amount = MIN(uio->uio_resid, (TM1637_BUFFERSIZE - uio->uio_offset));
 
 #ifdef DEBUG
     uprintf("dev_write\n");
-    uprintf("  uio_offset: %llu\n", uio->uio_offset);
+    uprintf("  uio_offset: %lld\n", uio->uio_offset);
 #endif
 
     // Set a first char position
     sc->tm1637_buf->offset = uio->uio_offset;
 
-    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, uio->uio_resid, uio);
+    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
 
     // Set the length
     sc->tm1637_buf->len = uio->uio_offset;
@@ -560,7 +577,7 @@ tm1637_process_chars(struct tm1637_softc *sc)
 	    }
 	    else if (buf_index <= TM1637_MAX_COLOM)
 	    {
-		if (sc->tm1637_buf->text[TM1637_COLON_POSITION] == ':')
+		if ((buf_index > TM1637_COLON_POSITION) && (sc->tm1637_buf->text[TM1637_COLON_POSITION] == ':'))
 		    err = EINVAL;
 		else
 		{
@@ -609,34 +626,22 @@ static int
 tm1637_write_chars(struct tm1637_softc *sc, struct uio *uio)
 {
     int error;
-    size_t amount, available;
-
-    /*
-     * We either write from the beginning or are appending -- do
-     * not allow random access.
-     */
-    if (uio->uio_offset == 0)
-	sc->tm1637_buf->len = 0; // This is a new message, reset length
-    else if (uio->uio_offset != sc->tm1637_buf->len)
-	return (EINVAL);
-
-    // Copy the string in from user memory to kernel memory
-    available = TM1637_BUFFERSIZE - uio->uio_offset;
-    amount = MIN(uio->uio_resid, available);
+    size_t amount;
+    off_t uio_offset_saved;
 
 #ifdef DEBUG
     uprintf("dev_write\n");
-    uprintf("  uio_offset: %llu\n", uio->uio_offset);
+    uprintf("  uio_offset: %lld\n", uio->uio_offset);
 #endif
 
-    error = uiomove(sc->tm1637_buf->text + uio->uio_offset, amount, uio);
-
-    // Set the length
-    sc->tm1637_buf->len = uio->uio_offset;
+    amount = MIN(uio->uio_resid, TM1637_BUFFERSIZE);
+    uio_offset_saved = uio->uio_offset;
+    error = uiomove(sc->tm1637_buf->text, amount, uio);
+    uio->uio_offset = uio_offset_saved;
 
 #ifdef DEBUG
     uprintf("  tm1637_buf->text: [");
-    for(size_t i = 0; i < sc->tm1637_buf->len; i++)
+    for(size_t i = 0; i < amount; i++)
     {
 	if (sc->tm1637_buf->text[i] == '\n')
 	    uprintf("\\n");
@@ -644,8 +649,11 @@ tm1637_write_chars(struct tm1637_softc *sc, struct uio *uio)
 	    uprintf("%c", sc->tm1637_buf->text[i]);
     }
     uprintf("]\n");
-    uprintf("  tm1637_buf->len: %d\n", sc->tm1637_buf->len);
+    uprintf("  tm1637_buf->len: %d\n", amount);
 #endif
+
+    if (error == 0)
+	sc->tm1637_buf->len = amount;
 
     return (error);
 }
