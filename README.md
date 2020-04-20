@@ -71,13 +71,13 @@ Now the display can be easy used from PHP or Python or anything alse.
 
 You can change by write to a kernel variable:
 * `brightness` 0...7 digit, 0 is a darkest one.
-* `mode` 0 or 1. 0 is a string mode, 1 is a bytes of segments to light mode.
+* `raw_mode` 0 or 1. 0 is a string mode, 1 is a bytes of segments to light mode.
 * `on` on ot off the display (brightness level keeps its level).
 
 ```
 sysctl dev.tm1637.0.brightness=7
 sysctl dev.tm1637.0.on=0
-sysctl dev.tm1637.0.mode=1
+sysctl dev.tm1637.0.raw_mode=1
 ```
 
 As said above You can switch the driver to one of two modes:
