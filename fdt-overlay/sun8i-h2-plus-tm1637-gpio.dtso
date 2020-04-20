@@ -22,6 +22,14 @@
 	         &pio 2 7 0>;
 	scl = <0>; // PC4 (16)
 	sda = <1>; // PC7 (18)
+
+	/* From 0 to 7. 0 is a darkest */
+	default-brightness-level = <1>;
+
+	/* Uncomment for a bytes of segments input
+	 * A human readable string, otherwise */
+	//raw-mode;
+
 	status = "okay";
     };
 };

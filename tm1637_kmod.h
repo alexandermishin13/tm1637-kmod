@@ -21,6 +21,7 @@
 #define TM1637_CDEV_NAME	"tm1637"
 #define TM1637_SCL_PROPERTY	"scl-gpios"
 #define TM1637_SDA_PROPERTY	"sda-gpios"
+#define TM1637_MODE_PROPERTY	"mode"
 #define TM1637_SCL_IDX		0
 #define TM1637_SDA_IDX		1
 #define TM1637_MIN_PINS		2
@@ -56,12 +57,13 @@ struct s_message {
 
 struct tm1637_softc {
     device_t		 tm1637_dev;
+    phandle_t		 tm1637_node;
     device_t		 tm1637_busdev;
     gpio_pin_t		 tm1637_sclpin;
     gpio_pin_t		 tm1637_sdapin;
     uint8_t		 tm1637_brightness;
     uint8_t		 tm1637_on;
-    uint8_t		 tm1637_mode;
+    uint8_t		 tm1637_raw_mode;
     bool		 tm1637_needupdate;
     bool		 tm1637_inuse;
     u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // ??? 1 byte overflow
@@ -77,5 +79,7 @@ MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 module");
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
+static int tm1637_read(struct cdev*, struct uio*, int ioflag);
+static int tm1637_write(struct cdev*, struct uio*, int ioflag);
 
 #endif /* _TM1637_KMOD_H_ */

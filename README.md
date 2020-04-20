@@ -130,7 +130,6 @@ Do not know yet.
 
 ## To do
 
-* Add optional default parameters for a brightness and a mode to fdt-overlays;
 * Check if I could make a `\n` at the end in string mode optional.
 
 ## Status

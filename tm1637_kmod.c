@@ -41,10 +41,6 @@
 
 static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
-static int tm1637_probe(device_t);
-static int tm1637_attach(device_t);
-static int tm1637_detach(device_t);
-
 static void tm1637_display_on(struct tm1637_softc *sc);
 static void tm1637_display_off(struct tm1637_softc *sc);
 
@@ -88,34 +84,31 @@ MODULE_DEPEND(tm1637, gpiobus, 1, 1, 1);
 static int
 tm1637_setup_fdt_pins(struct tm1637_softc *sc)
 {
-    phandle_t node;
     int err;
-
-    node = ofw_bus_get_node(sc->tm1637_dev);
 
     /*
      * Historically, we used the first two array elements of the gpios
      * property.  The modern bindings specify separate scl-gpios and
      * sda-gpios properties.  We cope with whichever is present.
      */
-    if (OF_hasprop(node, "gpios")) {
-	if ((err = gpio_pin_get_by_ofw_idx(sc->tm1637_dev, node, TM1637_SCL_IDX, &sc->tm1637_sclpin)) != 0)
+    if (OF_hasprop(sc->tm1637_node, "gpios")) {
+	if ((err = gpio_pin_get_by_ofw_idx(sc->tm1637_dev, sc->tm1637_node, TM1637_SCL_IDX, &sc->tm1637_sclpin)) != 0)
 	{
 	    device_printf(sc->tm1637_dev, "invalid gpios property for index:%d\n", TM1637_SCL_IDX);
 	    return (err);
 	}
-	if ((err = gpio_pin_get_by_ofw_idx(sc->tm1637_dev, node, TM1637_SDA_IDX, &sc->tm1637_sdapin)) != 0)
+	if ((err = gpio_pin_get_by_ofw_idx(sc->tm1637_dev, sc->tm1637_node, TM1637_SDA_IDX, &sc->tm1637_sdapin)) != 0)
 	{
 	    device_printf(sc->tm1637_dev, "invalid gpios property for index:%d\n", TM1637_SDA_IDX);
 	    return (err);
 	}
     } else {
-	if ((err = gpio_pin_get_by_ofw_property(sc->tm1637_dev, node, TM1637_SCL_PROPERTY, &sc->tm1637_sclpin)) != 0)
+	if ((err = gpio_pin_get_by_ofw_property(sc->tm1637_dev, sc->tm1637_node, TM1637_SCL_PROPERTY, &sc->tm1637_sclpin)) != 0)
 	{
 	    device_printf(sc->tm1637_dev, "missing %s property\n", TM1637_SCL_PROPERTY);
 	    return (err);
 	}
-	if ((err = gpio_pin_get_by_ofw_property(sc->tm1637_dev, node, TM1637_SDA_PROPERTY, &sc->tm1637_sdapin)) != 0)
+	if ((err = gpio_pin_get_by_ofw_property(sc->tm1637_dev, sc->tm1637_node, TM1637_SDA_PROPERTY, &sc->tm1637_sdapin)) != 0)
 	{
 	    device_printf(sc->tm1637_dev, "missing %s property\n", TM1637_SDA_PROPERTY);
 	    return (err);
@@ -196,28 +189,28 @@ tm1637_set_on_sysctl(SYSCTL_HANDLER_ARGS)
 }
 
 /*
- * Sysctl parameter: mode
+ * Sysctl parameter: raw_mode
  */
 static int
-tm1637_mode_sysctl(SYSCTL_HANDLER_ARGS)
+tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
 {
     struct tm1637_softc *sc = arg1;
-    uint8_t _mode = sc->tm1637_mode;
+    uint8_t _raw_mode = sc->tm1637_raw_mode;
     int error = 0;
 
-    error = SYSCTL_OUT(req, &_mode, sizeof(_mode));
+    error = SYSCTL_OUT(req, &_raw_mode, sizeof(_raw_mode));
     if (error != 0 || req->newptr == NULL)
 	return (error);
 
-    error = SYSCTL_IN(req, &_mode, sizeof(_mode));
+    error = SYSCTL_IN(req, &_raw_mode, sizeof(_raw_mode));
     if (error != 0)
 	return (error);
 
-    switch(_mode)
+    switch(_raw_mode)
     {
 	case 0:
 	case 1:
-	    sc->tm1637_mode = _mode;
+	    sc->tm1637_raw_mode = _raw_mode;
 	    break;
 	default:
 	    error = EINVAL;
@@ -806,7 +799,7 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 
     struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored on tm1637_attach()
 
-    switch(sc->tm1637_mode)
+    switch(sc->tm1637_raw_mode)
     {
 	case 0:
 	    error = tm1637_write_chars(sc, uio);
@@ -892,6 +885,7 @@ tm1637_attach(device_t dev)
     tree = device_get_sysctl_tree(dev);
 
     sc->tm1637_dev = dev;
+    sc->tm1637_node = ofw_bus_get_node(dev);
 
     /* Acquire our gpio pins. */
     err = tm1637_setup_hinted_pins(sc);
@@ -912,7 +906,6 @@ tm1637_attach(device_t dev)
 	device_get_nameunit(GPIO_GET_BUS(sc->tm1637_sdapin->dev)), sc->tm1637_sdapin->pin);
 
     /* Create the tm1637 cdev. */
-
     err = make_dev_p(MAKEDEV_CHECKNAME | MAKEDEV_WAITOK,
 	&sc->tm1637_cdev,
 	&tm1637_cdevsw,
@@ -928,9 +921,24 @@ tm1637_attach(device_t dev)
 	return (err);
     }
 
-    sc->tm1637_brightness = TM1637_BRIGHT_DARKEST;
     sc->tm1637_cdev->si_drv1 = sc;
 
+    /* Set properties */
+    uint32_t brightness;
+    if (OF_getencprop(sc->tm1637_node, "default-brightness-level", &brightness, sizeof(uint32_t)) == sizeof(uint32_t))
+    {
+	if (brightness <= 7)
+	    sc->tm1637_brightness = brightness;
+	else
+	    sc->tm1637_brightness = TM1637_BRIGHT_DARKEST;
+    }
+
+    if (OF_hasprop(sc->tm1637_node, "raw-mode") == 1)
+	sc->tm1637_raw_mode = 1;
+    else
+	sc->tm1637_raw_mode = 0;
+
+    /* Create sysctl variables and set their handlers */
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
 	"brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	&tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
@@ -940,8 +948,8 @@ tm1637_attach(device_t dev)
 	&tm1637_set_on_sysctl, "CU", "display is on or off");
 
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	"mode", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
-	&tm1637_mode_sysctl, "CU", "Type of input 0 for digits, colon etc., 1 for bytes of segments");
+	"raw_mode", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	&tm1637_raw_mode_sysctl, "CU", "Raw mode of input: 0 for human readable, 1 for bytes of segments");
 
     TM1637_LOCK_INIT(sc);
     sc->tm1637_buf = malloc(sizeof(*sc->tm1637_buf), M_TM1637BUF, M_WAITOK | M_ZERO);

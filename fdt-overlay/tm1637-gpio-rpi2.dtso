@@ -23,6 +23,14 @@
 		>;
 	scl = <0>; // GPIO20 (38)
 	sda = <1>; // GPIO21 (40)
+
+	/* From 0 to 7. 0 is a darkest */
+	default-brightness-level = <1>;
+
+	/* Uncomment for a bytes of segments input
+	 * A human readable string, otherwise */
+	//raw-mode;
+
 	status = "okay";
     };
 };
