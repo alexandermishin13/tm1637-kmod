@@ -735,8 +735,35 @@ static struct cdevsw tm1637_cdevsw = {
     .d_close = tm1637_close,
     .d_read = tm1637_read,
     .d_write = tm1637_write,
+    .d_ioctl = tm1637_ioctl,
     .d_name = TM1637_CDEV_NAME,
 };
+
+static int
+tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, struct thread *td)
+{
+    int error = 0;
+
+    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+
+    switch (cmd)
+    {
+	case TM1637_DISPLAY_CLEAR:
+	    tm1637_clear_display(sc);
+	    break;
+	case TM1637_DISPLAY_OFF:
+	    tm1637_display_off(sc);
+	    break;
+	case TM1637_DISPLAY_ON:
+	    tm1637_display_on(sc);
+	    break;
+	default:
+	    error = ENOTTY;
+	    break;
+    }
+
+    return (error);
+}
 
 static int
 tm1637_open(struct cdev *tm1637_cdev, int oflags __unused, int devtype __unused,

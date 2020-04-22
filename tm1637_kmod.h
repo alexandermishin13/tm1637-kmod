@@ -49,6 +49,10 @@
 #define TM1637_UNLOCK(sc)	\
     mtx_unlock(&(sc)->lock)
 
+#define TM1637_DISPLAY_CLEAR	_IO('T', 1)
+#define TM1637_DISPLAY_OFF	_IO('T', 2)
+#define TM1637_DISPLAY_ON	_IO('T', 3)
+
 struct s_message {
     char text[TM1637_BUFFERSIZE + 1]; // ??? +1
     int offset;
@@ -81,5 +85,6 @@ static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
 static int tm1637_read(struct cdev*, struct uio*, int ioflag);
 static int tm1637_write(struct cdev*, struct uio*, int ioflag);
+static int tm1637_ioctl(struct cdev*, u_long cmd, caddr_t data, int fflag, struct thread*);
 
 #endif /* _TM1637_KMOD_H_ */

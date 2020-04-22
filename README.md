@@ -120,6 +120,25 @@ set an eight bit of second byte and unset it for turn the colon off. You can
 write all four byte at once or set a position by seek() and write one or more
 bytes.
 
+## ioctl() functions
+
+For programming languages which have an ability to use of `ioctl()` calls.
+`ioctl()` functions defined as:
+```
+#define TM1637_DISPLAY_CLEAR	_IO('T', 1)
+#define TM1637_DISPLAY_OFF	_IO('T', 2)
+#define TM1637_DISPLAY_ON	_IO('T', 3)
+```
+You could `clear`, `off` and `on` the display just simple as that.
+```
+dev_fd = open("/dev/tm1637", O_WRONLY);
+ioctl(dev_fd, TM1637_DISPLAY_CLEAR);
+ioctl(dev_fd, TM1637_DISPLAY_ON);
+....
+ioctl(dev_fd, TM1637_DISPLAY_OFF);
+close(dev_fd);
+```
+
 ## Examples
 
 There are examples for Perl and Python in "examples/".
