@@ -49,9 +49,10 @@
 #define TM1637_UNLOCK(sc)	\
     mtx_unlock(&(sc)->lock)
 
-#define TM1637_DISPLAY_CLEAR	_IO('T', 1)
-#define TM1637_DISPLAY_OFF	_IO('T', 2)
-#define TM1637_DISPLAY_ON	_IO('T', 3)
+#define TM1637_IOCTL_CLEAR	_IO('T', 1)
+#define TM1637_IOCTL_OFF	_IO('T', 2)
+#define TM1637_IOCTL_ON		_IO('T', 3)
+#define TM1637_IOCTL_BRIGHTNESS	_IOW('T', 11, uint8_t)
 
 struct s_message {
     char text[TM1637_BUFFERSIZE + 1]; // ??? +1

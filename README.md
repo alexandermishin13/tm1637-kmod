@@ -125,9 +125,10 @@ bytes.
 For programming languages which have an ability to use of `ioctl()` calls.
 `ioctl()` functions defined as:
 ```
-#define TM1637_DISPLAY_CLEAR	_IO('T', 1)
-#define TM1637_DISPLAY_OFF	_IO('T', 2)
-#define TM1637_DISPLAY_ON	_IO('T', 3)
+#define TM1637_IOCTL_CLEAR	_IO('T', 1)
+#define TM1637_IOCTL_OFF	_IO('T', 2)
+#define TM1637_IOCTL_ON		_IO('T', 3)
+#define TM1637_IOCTL_BRIGHTNESS	_IOW('T', 11, uint8_t)
 ```
 You could `clear`, `off` and `on` the display just simple as that.
 ```

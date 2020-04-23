@@ -478,7 +478,6 @@ tm1637_write_segs(struct tm1637_softc *sc, struct uio *uio)
     size_t amount;
 
     // Check a file current position which an user set by seek()
-    
     if (uio->uio_offset >= 0)
     {
 	if(uio->uio_offset >= TM1637_MAX_COLOM)
@@ -727,6 +726,7 @@ static d_open_t      tm1637_open;
 static d_close_t     tm1637_close;
 static d_read_t      tm1637_read;
 static d_write_t     tm1637_write;
+static d_ioctl_t     tm1637_ioctl;
 
 /* Character device entry points */
 static struct cdevsw tm1637_cdevsw = {
@@ -748,13 +748,17 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 
     switch (cmd)
     {
-	case TM1637_DISPLAY_CLEAR:
+	case TM1637_IOCTL_CLEAR:
 	    tm1637_clear_display(sc);
 	    break;
-	case TM1637_DISPLAY_OFF:
+	case TM1637_IOCTL_OFF:
 	    tm1637_display_off(sc);
 	    break;
-	case TM1637_DISPLAY_ON:
+	case TM1637_IOCTL_ON:
+	    tm1637_display_on(sc);
+	    break;
+	case TM1637_IOCTL_BRIGHTNESS:
+	    sc->tm1637_brightness = *(uint8_t*)data;
 	    tm1637_display_on(sc);
 	    break;
 	default:
