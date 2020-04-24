@@ -316,7 +316,6 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
     size_t position;
 
 #ifdef DEBUG
-    uprintf("\n");
     uprintf("display: ");
 #endif
 
@@ -346,6 +345,35 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 #ifdef DEBUG
     uprintf("\n");
 #endif
+}
+
+/*
+ * Display or clear a clockpoint
+ */
+static void
+tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
+{
+    tm1637_gpio_start(sc); // Start a byte
+    tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send a fixed address command to tm1637
+    tm1637_gpio_stop(sc);  // Stop a byte
+
+    tm1637_gpio_start(sc); // Start a byte sequence
+    tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + TM1637_COLON_POSITION - 1); // Send a start address to tm1637
+
+#ifdef DEBUG
+    uprintf("display: ");
+    uprintf("%i[    %02x]\n",
+            TM1637_COLON_POSITION - 1,
+            sc->tm1637_digits[TM1637_COLON_POSITION - 1]);
+#endif
+
+    if (clockpoint)
+	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
+    else
+	sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
+
+    tm1637_gpio_sendbyte(sc, sc->tm1637_digits[TM1637_COLON_POSITION - 1]); // Send colom segments to tm1637
+    tm1637_gpio_stop(sc); // Stop a byte sequence
 }
 
 /*
@@ -381,7 +409,7 @@ tm1637_update_display(struct tm1637_softc *sc)
     // or mark it for update if it is off
     if(sc->tm1637_on)
 	tm1637_display_digits(sc, first, last);
-    else if(last > first)
+    else if(first < TM1637_MAX_COLOM)
 	sc->tm1637_needupdate = true;
 }
 
@@ -749,17 +777,35 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
     switch (cmd)
     {
 	case TM1637_IOCTL_CLEAR:
+#ifdef DEBUG
+	    uprintf("ioctl(display_clear)\n");
+#endif
 	    tm1637_clear_display(sc);
 	    break;
 	case TM1637_IOCTL_OFF:
+#ifdef DEBUG
+	    uprintf("ioctl(display_off)\n");
+#endif
 	    tm1637_display_off(sc);
 	    break;
 	case TM1637_IOCTL_ON:
+#ifdef DEBUG
+	    uprintf("ioctl(display_on)\n");
+#endif
 	    tm1637_display_on(sc);
 	    break;
 	case TM1637_IOCTL_BRIGHTNESS:
 	    sc->tm1637_brightness = *(uint8_t*)data;
+#ifdef DEBUG
+	    uprintf("ioctl(brightness, %i)\n", sc->tm1637_brightness);
+#endif
 	    tm1637_display_on(sc);
+	    break;
+	case TM1637_IOCTL_CLOCKPOINT:
+#ifdef DEBUG
+	    uprintf("ioctl(clockpoint, %i)\n", *(uint8_t*)data);
+#endif
+	    tm1637_display_clockpoint(sc, *(bool*)data);
 	    break;
 	default:
 	    error = ENOTTY;
@@ -828,35 +874,30 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 {
     int error;
 
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored on tm1637_attach()
+    struct tm1637_softc *sc = tm1637_cdev->si_drv1;
 
-    switch(sc->tm1637_raw_mode)
+    if(sc->tm1637_raw_mode > 0)
     {
-	case 0:
-	    error = tm1637_write_chars(sc, uio);
-
+	error = tm1637_write_segs(sc, uio);
+	if (error == 0)
+	{
+	    error = tm1637_process_segs(sc);
 	    if (error == 0)
-	    {
-		// Decode sc->tm1637_buf
-		error = tm1637_process_chars(sc);
-		if (error == 0)
-		    tm1637_update_display(sc);
-		else
-		    tm1637_restore_digits(sc);
-	    }
-
-	    break;
-	case 1:
-	    error = tm1637_write_segs(sc, uio);
-
+		tm1637_update_display(sc); // No any restore needed
+	}
+    }
+    else
+    {
+	error = tm1637_write_chars(sc, uio);
+	if (error == 0)
+	{
+	    // Decode sc->tm1637_buf
+	    error = tm1637_process_chars(sc);
 	    if (error == 0)
-	    {
-		error = tm1637_process_segs(sc);
-		if (error == 0)
-		    tm1637_update_display(sc); // No any restore needed
-	    }
-
-	    break;
+		tm1637_update_display(sc);
+	    else
+		tm1637_restore_digits(sc);
+	}
     }
 
     if (error != 0)

@@ -53,6 +53,7 @@
 #define TM1637_IOCTL_OFF	_IO('T', 2)
 #define TM1637_IOCTL_ON		_IO('T', 3)
 #define TM1637_IOCTL_BRIGHTNESS	_IOW('T', 11, uint8_t)
+#define TM1637_IOCTL_CLOCKPOINT	_IOW('T', 12, bool)
 
 struct s_message {
     char text[TM1637_BUFFERSIZE + 1]; // ??? +1

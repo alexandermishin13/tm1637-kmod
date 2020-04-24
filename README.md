@@ -129,6 +129,7 @@ For programming languages which have an ability to use of `ioctl()` calls.
 #define TM1637_IOCTL_OFF	_IO('T', 2)
 #define TM1637_IOCTL_ON		_IO('T', 3)
 #define TM1637_IOCTL_BRIGHTNESS	_IOW('T', 11, uint8_t)
+#define TM1637_IOCTL_CLOCKPOINT	_IOW('T', 12, bool)
 ```
 You could `clear`, `off` and `on` the display just simple as that.
 ```
