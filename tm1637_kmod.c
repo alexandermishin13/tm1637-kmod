@@ -802,10 +802,13 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 	    tm1637_display_on(sc);
 	    break;
 	case TM1637_IOCTL_CLOCKPOINT:
+	    if(sc->tm1637_on != 0)
+	    {
 #ifdef DEBUG
-	    uprintf("ioctl(clockpoint, %i)\n", *(uint8_t*)data);
+		uprintf("ioctl(clockpoint, %i)\n", *(uint8_t*)data);
 #endif
-	    tm1637_display_clockpoint(sc, *(bool*)data);
+		tm1637_display_clockpoint(sc, *(bool*)data);
+	    }
 	    break;
 	default:
 	    error = ENOTTY;
