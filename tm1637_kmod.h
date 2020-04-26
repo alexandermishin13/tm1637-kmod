@@ -88,5 +88,6 @@ static int tm1637_detach(device_t);
 static int tm1637_read(struct cdev*, struct uio*, int ioflag);
 static int tm1637_write(struct cdev*, struct uio*, int ioflag);
 static int tm1637_ioctl(struct cdev*, u_long cmd, caddr_t data, int fflag, struct thread*);
+static void tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness);
 
 #endif /* _TM1637_KMOD_H_ */

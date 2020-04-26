@@ -149,8 +149,7 @@ tm1637_brightness_sysctl(SYSCTL_HANDLER_ARGS)
     if (brightness > 7)
 	return (EINVAL);
 
-    sc->tm1637_brightness = brightness;
-    tm1637_display_on(sc);
+    tm1637_set_brightness(sc, brightness);
 
     return (0);
 }
@@ -244,7 +243,7 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
     int k = 0;
     bool noack;
 
-    for(i=0; i<=7; i++)
+    for(i=0; i<8; i++)
     {
 	gpio_pin_set_active(sc->tm1637_sclpin, false);
 	// Set the data bit, CLK is low after start
@@ -441,15 +440,67 @@ tm1637_clear_display(struct tm1637_softc *sc)
 static void
 tm1637_display_on(struct tm1637_softc *sc)
 {
-    if(sc->tm1637_needupdate)
+    // Do nothing is always on
+    if(sc->tm1637_on == 0)
     {
-	tm1637_display_digits(sc, 0, TM1637_MAX_COLOM - 1);
-	sc->tm1637_needupdate = false;
+	if(sc->tm1637_needupdate)
+	{
+	    tm1637_display_digits(sc, 0, TM1637_MAX_COLOM - 1);
+	    sc->tm1637_needupdate = false;
+	}
+	sc->tm1637_on = 1;
+	tm1637_gpio_start(sc); // Start a byte
+	tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
+	tm1637_gpio_stop(sc); // Stop a byte
+
+#ifdef DEBUG
+	uprintf("Display turned on\n");
+#endif
+
     }
-    sc->tm1637_on = 1;
-    tm1637_gpio_start(sc); // Start a byte
-    tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
-    tm1637_gpio_stop(sc); // Stop a byte
+}
+
+/*
+ * Sets a display on with a brightness value as parameter
+ */
+static void
+tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
+{
+
+#ifdef DEBUG
+    uprintf("Brightness level ");
+#endif
+
+    // If brightness is really changed
+    if ((brightness != sc->tm1637_brightness) &&
+        (brightness <= TM1637_BRIGHTEST))
+    {
+	sc->tm1637_brightness = brightness;
+	// Only change variable if a display is not on
+	if(sc->tm1637_on != 0)
+	{
+	    tm1637_gpio_start(sc); // Start a byte
+	    tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
+	    tm1637_gpio_stop(sc); // Stop a byte
+
+#ifdef DEBUG
+	    uprintf("is %d now\n", sc->tm1637_brightness);
+#endif
+
+	}
+
+#ifdef DEBUG
+	else
+	    uprintf("setting to %d is delayed until the display is on\n", sc->tm1637_brightness);
+#endif
+
+    }
+
+#ifdef DEBUG
+    else
+	uprintf("setting is ignored\n");
+#endif
+
 }
 
 /*
@@ -458,10 +509,19 @@ tm1637_display_on(struct tm1637_softc *sc)
 static void
 tm1637_display_off(struct tm1637_softc *sc)
 {
-    sc->tm1637_on = 0;
-    tm1637_gpio_start(sc); // Start a byte
-    tm1637_gpio_sendbyte(sc, 0x80);
-    tm1637_gpio_stop(sc); // Stop a byte
+    // Do nothing is always off
+    if(sc->tm1637_on != 0)
+    {
+	sc->tm1637_on = 0;
+	tm1637_gpio_start(sc); // Start a byte
+	tm1637_gpio_sendbyte(sc, 0x80);
+	tm1637_gpio_stop(sc); // Stop a byte
+
+#ifdef DEBUG
+	uprintf("Display turned off\n");
+#endif
+
+    }
 }
 
 static int
@@ -795,11 +855,10 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 	    tm1637_display_on(sc);
 	    break;
 	case TM1637_IOCTL_BRIGHTNESS:
-	    sc->tm1637_brightness = *(uint8_t*)data;
 #ifdef DEBUG
-	    uprintf("ioctl(brightness, %i)\n", sc->tm1637_brightness);
+	    uprintf("ioctl(brightness, %i)\n", *(uint8_t*)data);
 #endif
-	    tm1637_display_on(sc);
+	    tm1637_set_brightness(sc, *(uint8_t*)data);
 	    break;
 	case TM1637_IOCTL_CLOCKPOINT:
 	    if(sc->tm1637_on != 0)
