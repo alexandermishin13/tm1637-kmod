@@ -224,12 +224,9 @@ tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
 static void
 tm1637_gpio_start(struct tm1637_softc *sc)
 {
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
-
     gpio_pin_set_active(sc->tm1637_sclpin, true);
     gpio_pin_set_active(sc->tm1637_sdapin, true);
-    DELAY(2);
+    DELAY(1);
     gpio_pin_set_active(sc->tm1637_sdapin, false);
 }
 
@@ -252,21 +249,24 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 	gpio_pin_set_active(sc->tm1637_sclpin, true);
     }
     gpio_pin_set_active(sc->tm1637_sclpin, false);
-    DELAY(5);
-    // Waiting a zero data bit as an ACK
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_INPUT);
 
+    // Ask a peer to an acknowledge on DIO
+    gpio_pin_set_active(sc->tm1637_sdapin, true);
+    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_INPUT);
+    gpio_pin_set_active(sc->tm1637_sclpin, true);
+
+    // Waiting a zero data bit as an ACK
     do {
 	gpio_pin_is_active(sc->tm1637_sdapin, &noack);
-	if (k++ < TM1637_ACK_TIMEOUT)
-	    break;
-	DELAY(2);
-    } while (noack);
+	if (!noack)
+		break;
+	DELAY(1);
+	k++;
+    } while (k < TM1637_ACK_TIMEOUT);
 
-    gpio_pin_set_active(sc->tm1637_sclpin, true);
-    DELAY(2);
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
+    // Ask a peer to release DIO
     gpio_pin_set_active(sc->tm1637_sclpin, false);
+    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
 }
 
 /*
@@ -276,11 +276,8 @@ static void
 tm1637_gpio_stop(struct tm1637_softc *sc)
 {
     gpio_pin_set_active(sc->tm1637_sdapin, false);
-    DELAY(2);
-    gpio_pin_set_active(sc->tm1637_sclpin, false);
-    DELAY(2);
     gpio_pin_set_active(sc->tm1637_sclpin, true);
-    DELAY(2);
+    DELAY(1);
     gpio_pin_set_active(sc->tm1637_sdapin, true);
 }
 
