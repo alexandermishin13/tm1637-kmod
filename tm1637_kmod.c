@@ -867,7 +867,7 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 	    break;
 	case TM1637IOC_SET_BRIGHTNESS:
 #ifdef DEBUG
-	    uprintf("ioctl(brightness, %i)\n", *(uint8_t*)data);
+	    uprintf("ioctl(set_brightness, %i)\n", *(uint8_t*)data);
 #endif
 	    tm1637_set_brightness(sc, *(uint8_t*)data);
 	    break;
@@ -875,7 +875,7 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 	    if(sc->tm1637_on != 0)
 	    {
 #ifdef DEBUG
-		uprintf("ioctl(clockpoint, %i)\n", *(uint8_t*)data);
+		uprintf("ioctl(set_clockpoint, %i)\n", *(uint8_t*)data);
 #endif
 		tm1637_display_clockpoint(sc, *(bool*)data);
 	    }
@@ -884,10 +884,16 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 	    if (*(uint8_t*)data <= 1)
 	    {
 #ifdef DEBUG
-		uprintf("ioctl(rawmode, %i)\n", *(uint8_t*)data);
+		uprintf("ioctl(set_rawmode, %i)\n", *(uint8_t*)data);
 #endif
 		sc->tm1637_raw_mode = *(uint8_t*)data;
 	    }
+	    break;
+	case TM1637IOC_GET_RAWMODE:
+	    *(uint8_t *)data = sc->tm1637_raw_mode;
+#ifdef DEBUG
+	    uprintf("ioctl(get_rawmode, %i)\n", *(uint8_t*)data);
+#endif
 	    break;
 	default:
 	    error = ENOTTY;

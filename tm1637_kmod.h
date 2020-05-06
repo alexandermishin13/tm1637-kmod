@@ -66,6 +66,7 @@
 #define TM1637IOC_SET_BRIGHTNESS	_IOW('T', 11, uint8_t)
 #define TM1637IOC_SET_CLOCKPOINT	_IOW('T', 12, uint8_t)
 #define TM1637IOC_SET_RAWMODE		_IOW('T', 13, uint8_t)
+#define TM1637IOC_GET_RAWMODE		_IOR('T', 23, uint8_t)
 
 struct s_message {
     char text[TM1637_BUFFERSIZE + 1]; // ??? +1
