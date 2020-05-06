@@ -847,37 +847,46 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 
     switch (cmd)
     {
-	case TM1637_IOCTL_CLEAR:
+	case TM1637IOC_CLEAR:
 #ifdef DEBUG
 	    uprintf("ioctl(display_clear)\n");
 #endif
 	    tm1637_clear_display(sc);
 	    break;
-	case TM1637_IOCTL_OFF:
+	case TM1637IOC_OFF:
 #ifdef DEBUG
 	    uprintf("ioctl(display_off)\n");
 #endif
 	    tm1637_display_off(sc);
 	    break;
-	case TM1637_IOCTL_ON:
+	case TM1637IOC_ON:
 #ifdef DEBUG
 	    uprintf("ioctl(display_on)\n");
 #endif
 	    tm1637_display_on(sc);
 	    break;
-	case TM1637_IOCTL_BRIGHTNESS:
+	case TM1637IOC_SET_BRIGHTNESS:
 #ifdef DEBUG
 	    uprintf("ioctl(brightness, %i)\n", *(uint8_t*)data);
 #endif
 	    tm1637_set_brightness(sc, *(uint8_t*)data);
 	    break;
-	case TM1637_IOCTL_CLOCKPOINT:
+	case TM1637IOC_SET_CLOCKPOINT:
 	    if(sc->tm1637_on != 0)
 	    {
 #ifdef DEBUG
 		uprintf("ioctl(clockpoint, %i)\n", *(uint8_t*)data);
 #endif
 		tm1637_display_clockpoint(sc, *(bool*)data);
+	    }
+	    break;
+	case TM1637IOC_SET_RAWMODE:
+	    if (*(uint8_t*)data <= 1)
+	    {
+#ifdef DEBUG
+		uprintf("ioctl(rawmode, %i)\n", *(uint8_t*)data);
+#endif
+		sc->tm1637_raw_mode = *(uint8_t*)data;
 	    }
 	    break;
 	default:
