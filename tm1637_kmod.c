@@ -235,6 +235,9 @@ tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
 static void
 tm1637_gpio_start(struct tm1637_softc *sc)
 {
+    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
+
     gpio_pin_set_active(sc->tm1637_sclpin, true);
     gpio_pin_set_active(sc->tm1637_sdapin, true);
     DELAY(1);

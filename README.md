@@ -153,6 +153,8 @@ Do not know yet.
 ## To do
 
 * Check if I could make a `\n` at the end in string mode optional.
+* fdt_pinctrl_configure does not work. For now set pins flag forced
+befor every start of data transfer..
 
 ## Status
 
