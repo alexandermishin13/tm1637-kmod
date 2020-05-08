@@ -84,9 +84,7 @@ static driver_t tm1637_driver = {
 
 static devclass_t tm1637_devclass;
 
-#ifdef FDT
 DRIVER_MODULE(tm1637, simplebus, tm1637_driver, tm1637_devclass, NULL, NULL);
-#endif
 
 DRIVER_MODULE(tm1637, gpiobus, tm1637_driver, tm1637_devclass, NULL, NULL);
 MODULE_VERSION(tm1637, 1);
