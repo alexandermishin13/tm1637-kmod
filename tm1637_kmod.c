@@ -411,6 +411,10 @@ tm1637_update_display(struct tm1637_softc *sc)
 	}
     }
 
+#ifdef DEBUG
+    uprintf("\n");
+#endif
+
     // Display an optimized part of row of digits
     // or mark it for update if it is off
     if(sc->tm1637_on)
@@ -425,7 +429,7 @@ tm1637_update_display(struct tm1637_softc *sc)
 static void
 tm1637_clear_display(struct tm1637_softc *sc)
 {
-    size_t position = TM1637_MAX_COLOM - 1;
+    size_t position = TM1637_MAX_COLOM;
 
     // Display all blanks
     while(position--)
