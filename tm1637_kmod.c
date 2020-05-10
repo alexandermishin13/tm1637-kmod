@@ -64,7 +64,7 @@ static struct ofw_compat_data compat_data[] = {
     {NULL,     false}
 };
 
-//OFWBUS_PNP_INFO(compat_data);
+OFWBUS_PNP_INFO(compat_data);
 SIMPLEBUS_PNP_INFO(compat_data);
 
 static device_method_t tm1637_methods[] = {
@@ -76,15 +76,13 @@ static device_method_t tm1637_methods[] = {
     DEVMETHOD_END
 };
 
-static driver_t tm1637_driver = {
-    "tm1637",
-    tm1637_methods,
-    sizeof(struct tm1637_softc)
-};
-
 static devclass_t tm1637_devclass;
 
+DEFINE_CLASS_0(tm1637, tm1637_driver, tm1637_methods, sizeof(struct tm1637_softc));
+
+#ifdef FDT
 DRIVER_MODULE(tm1637, simplebus, tm1637_driver, tm1637_devclass, NULL, NULL);
+#endif
 
 DRIVER_MODULE(tm1637, gpiobus, tm1637_driver, tm1637_devclass, NULL, NULL);
 MODULE_VERSION(tm1637, 1);
@@ -995,17 +993,17 @@ tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 static int
 tm1637_probe(device_t dev)
 {
+    int rv = BUS_PROBE_NOWILDCARD;
 
 #ifdef FDT
-    if (!ofw_bus_status_okay(dev))
-	return (ENXIO);
-    if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
-	return (ENXIO);
+    if (ofw_bus_status_okay(dev) &&
+	ofw_bus_search_compatible(dev, compat_data)->ocd_data)
+	    rv = BUS_PROBE_DEFAULT;
 #endif
 
     device_set_desc(dev, "TM1637 4 Digit 7 Segment Display");
 
-    return (BUS_PROBE_DEFAULT);
+    return (rv);
 }
 
 static int
