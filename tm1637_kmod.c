@@ -1071,7 +1071,7 @@ tm1637_attach(device_t dev)
 	UID_ROOT,
 	GID_WHEEL,
 	0600,
-	"tm1637");
+	TM1637_CDEV_NAME);
 
     if (err != 0) {
 	device_printf(dev, "Unable to create tm1637 cdev\n");
