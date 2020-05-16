@@ -85,7 +85,7 @@ struct tm1637_softc {
     uint8_t		 tm1637_raw_mode;
     bool		 tm1637_needupdate;
     bool		 tm1637_inuse;
-    u_char		 tm1637_digits[TM1637_MAX_COLOM + 1]; // ??? 1 byte overflow
+    u_char		 tm1637_digits[TM1637_MAX_COLOM];
     u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
     struct mtx		 lock;
     struct cdev		*tm1637_cdev;
