@@ -359,13 +359,6 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 static void
 tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 {
-    tm1637_gpio_start(sc); // Start a byte
-    tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send a fixed address command to tm1637
-    tm1637_gpio_stop(sc);  // Stop a byte
-
-    tm1637_gpio_start(sc); // Start a byte sequence
-    tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + TM1637_COLON_POSITION - 1); // Send a start address to tm1637
-
 #ifdef DEBUG
     uprintf("display: ");
     uprintf("%i[    %02x]\n",
@@ -377,6 +370,13 @@ tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
     else
 	sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
+
+    tm1637_gpio_start(sc); // Start a byte
+    tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send a fixed address command to tm1637
+    tm1637_gpio_stop(sc);  // Stop a byte
+
+    tm1637_gpio_start(sc); // Start a byte sequence
+    tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + TM1637_COLON_POSITION - 1); // Send a start address to tm1637
 
     tm1637_gpio_sendbyte(sc, sc->tm1637_digits[TM1637_COLON_POSITION - 1]); // Send colom segments to tm1637
     tm1637_gpio_stop(sc); // Stop a byte sequence
