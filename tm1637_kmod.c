@@ -359,17 +359,17 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 static void
 tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 {
+    if (clockpoint)
+	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
+    else
+	sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
+
 #ifdef DEBUG
     uprintf("display: ");
     uprintf("%i[    %02x]\n",
             TM1637_COLON_POSITION - 1,
             sc->tm1637_digits[TM1637_COLON_POSITION - 1]);
 #endif
-
-    if (clockpoint)
-	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
-    else
-	sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
 
     tm1637_gpio_start(sc); // Start a byte
     tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send a fixed address command to tm1637
