@@ -1,5 +1,7 @@
 #!/bin/sh
 
+/sbin/sysctl dev.tm1637.0.raw_mode=0
+
 # trap ctrl-c and call ctrl_c()
 trap ctrl_c INT
 
