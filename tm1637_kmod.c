@@ -326,7 +326,7 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 #endif
 
     // If changes was made, display them
-    if(first < TM1637_MAX_COLOM)
+    if(first <= last)
     {
 	tm1637_gpio_start(sc); // Start a byte
 	tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
