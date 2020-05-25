@@ -325,28 +325,24 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
     uprintf("display: ");
 #endif
 
-    // If changes was made, display them
-    if(first <= last)
+    tm1637_gpio_start(sc); // Start a byte
+    tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
+    tm1637_gpio_stop(sc);  // Stop a byte
+
+    tm1637_gpio_start(sc); // Start a byte sequence
+    tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + first); // Send a start address to tm1637
+
+    // Send change digits
+    for(position=first; position<=last; position++)
     {
-	tm1637_gpio_start(sc); // Start a byte
-	tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
-	tm1637_gpio_stop(sc);  // Stop a byte
-
-	tm1637_gpio_start(sc); // Start a byte sequence
-	tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + first); // Send a start address to tm1637
-
-	// Send change digits
-	for(position=first; position<=last; position++)
-	{
 
 #ifdef DEBUG
-	    uprintf("%i[    %02x]", position, sc->tm1637_digits[position]);
+	uprintf("%i[    %02x]", position, sc->tm1637_digits[position]);
 #endif
 
-	    tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
-	}
-	tm1637_gpio_stop(sc); // Stop a byte sequence
+	tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
     }
+    tm1637_gpio_stop(sc); // Stop a byte sequence
 
 #ifdef DEBUG
     uprintf("\n");
@@ -417,10 +413,13 @@ tm1637_update_display(struct tm1637_softc *sc)
 
     // Display an optimized part of row of digits
     // or mark it for update if it is off
-    if(sc->tm1637_on)
-	tm1637_display_digits(sc, first, last);
-    else if(first < TM1637_MAX_COLOM)
-	sc->tm1637_needupdate = true;
+    if(first < TM1637_MAX_COLOM)
+    {
+	if(sc->tm1637_on)
+	    tm1637_display_digits(sc, first, last);
+	else
+	    sc->tm1637_needupdate = true;
+    }
 }
 
 /*
