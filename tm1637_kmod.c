@@ -234,10 +234,10 @@ tm1637_gpio_start(struct tm1637_softc *sc)
     gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
     gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
 
-    gpio_pin_set_active(sc->tm1637_sclpin, true);
     gpio_pin_set_active(sc->tm1637_sdapin, true);
     DELAY(1);
     gpio_pin_set_active(sc->tm1637_sdapin, false);
+    gpio_pin_set_active(sc->tm1637_sclpin, false);
 }
 
 /*
@@ -277,6 +277,9 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
     // Ask a peer to release DIO
     gpio_pin_set_active(sc->tm1637_sclpin, false);
     gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
+
+    if (noack)
+	device_printf(sc->tm1637_dev, "No ack when sent %02x\n", data);
 }
 
 /*
@@ -286,8 +289,8 @@ static void
 tm1637_gpio_stop(struct tm1637_softc *sc)
 {
     gpio_pin_set_active(sc->tm1637_sdapin, false);
-    gpio_pin_set_active(sc->tm1637_sclpin, true);
     DELAY(1);
+    gpio_pin_set_active(sc->tm1637_sclpin, true);
     gpio_pin_set_active(sc->tm1637_sdapin, true);
 }
 
