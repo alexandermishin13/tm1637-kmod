@@ -539,6 +539,29 @@ tm1637_display_off(struct tm1637_softc *sc)
     }
 }
 
+/*
+ * Sets time to the display
+ */
+static void
+tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
+{
+    int t;
+
+    t = clock.tm_hour / 10;
+    sc->tm1637_digits[0] = char_code[t&0x0f];
+    t = clock.tm_hour % 10;
+    sc->tm1637_digits[1] = char_code[t&0x0f];
+    t = clock.tm_min / 10;
+    sc->tm1637_digits[2] = char_code[t&0x0f];
+    t = clock.tm_min % 10;
+    sc->tm1637_digits[3] = char_code[t&0x0f];
+
+    if (clock.tm_colon)
+	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
+
+    tm1637_update_display(sc);
+}
+
 static int
 tm1637_process_segs(struct tm1637_softc *sc)
 {
@@ -894,10 +917,19 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 	    }
 	    break;
 	case TM1637IOC_GET_RAWMODE:
-	    *(uint8_t *)data = sc->tm1637_raw_mode;
 #ifdef DEBUG
-	    uprintf("ioctl(get_rawmode, %i)\n", *(uint8_t*)data);
+	    uprintf("ioctl(get_rawmode) -> %i\n", sc->tm1637_raw_mode);
 #endif
+	    *(uint8_t *)data = sc->tm1637_raw_mode;
+	    break;
+	case TM1637IOC_SET_CLOCK:
+#ifdef DEBUG
+		uprintf("ioctl(set_clock, %02i%c%02i)\n",
+			*(struct tm1637_clock_t*)data->tm_hour,
+			*(struct tm1637_clock_t*)data->tm_colon)?':':' ',
+			*(struct tm1637_clock_t*)data->tm_min);
+#endif
+	    tm1637_set_clock(sc, *(struct tm1637_clock_t*)data);
 	    break;
 	default:
 	    error = ENOTTY;
