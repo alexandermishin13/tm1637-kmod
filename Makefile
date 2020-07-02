@@ -2,7 +2,7 @@
 
 KMOD=tm1637
 SRCS=tm1637_kmod.c
-SUBDIR=fdt-overlay
+SUBDIR=fdt-overlay man
 
 SRCS+=	\
 	bus_if.h \

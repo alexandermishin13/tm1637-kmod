@@ -1,0 +1,91 @@
+.Dd May 1, 2020
+.Dt TM1637 4
+.Os
+.Sh NAME
+.Nm tm1637
+.Nd driver for the TM1637 4 Digit 7 Segment Display
+.Sh SYNOPSIS
+To compile this driver as a kernel loadable module with fdt-overlays
+edit a fdt-overlay for Your platform to set right pins the display
+is connected. Then chenge a current directory to the top of sources codes
+of the driver and type:
+.Bd -literal -offset indent
+make
+sudo make install
+.Ed
+.Pp
+To activate the overlay at boot time add its name to
+.Va fdt_overlays
+in
+.Xr loader.conf 5 :
+.Bd -literal -offset indent
+fdt_overlays="<other_overlays>,tm1637-gpio-rpi2"
+.Ed
+or
+.Bd -literal -offset indent
+fdt_overlays="<other_overlays>,sun8i-h3-tm1637-gpio"
+.Ed
+.Pp
+and to load the driver as a module at boot time
+place following lines in same
+.Xr loader.conf 5 :
+.Bd -literal -offset indent
+tm1637_load="YES"
+.Ed
+.Pp
+.Sh DESCRIPTION
+The
+.Nm
+is a low-cost 4-digit 7-segment display module. It can display up to 4 digits
+and a colon between 2nd and 3rd ones. Because of the colon it is good for
+displaying time. For a connecting to
+.Xr gpiobus 4
+it uses two wires DIO and CLK along with power (either +3V or +5V) and
+GND. The device uses its own protocol for data exchange and does not comply
+with the
+.Xr iic 4
+standard.
+.Pp
+On a
+.Xr FDT 4
+based system the following properties must be set:
+.Bl -tag -width ".Va compatible"
+.It Va compatible
+Must always be set to "tm1637".
+.El
+.Sh SYSCTL VARIABLES
+The following variables are available to control the display via
+.Xr sysctl 8 :
+.Bd -literal
+dev.tm1637.0.raw_mode: 0
+dev.tm1637.0.on: 1
+dev.tm1637.0.brightness: 1
+dev.tm1637.0.%parent: simplebus0
+dev.tm1637.0.%pnpinfo: name=tm1637@0 compat=tm1637
+dev.tm1637.0.%location: 
+dev.tm1637.0.%driver: tm1637
+dev.tm1637.0.%desc: TM1637 4 Digit 7 Segment Display
+dev.tm1637.%parent: 
+.Ed
+.Bl -tag -width ".Va dev.tm1537"
+.It Va dev.tm1637.<unit>.on
+The mode of the display, 0=off, 1=on. In off mode display is blank and data
+being written is not realy sent to it. But last piece of data will be sent
+to the display when it is turned on.
+.It Va dev.tm1637.<unit>.brightness
+The display brightness level, 0=darkest, 7=brightest
+.It Va dev.tm1637.<unit>.raw_mode
+Data input mode, 0=human readable, 1=raw. In the human readable input mode
+the device will interpret the data as a string up to 5 characters long ended up
+by "\\n", by example: "12:34\\n". In the raw input mode the data will be
+interpreted as bytes of segments by one to each digit (A start position can be
+set before writing to the device in this mode).
+.Sh SEE ALSO
+.Xr fdt 4 ,
+.Xr sysctl 8
+.Sh AUTHORS
+.An -nosplit
+The
+.Nm
+driver and this manual page were written by
+.An Alexander Mishin Aq Mt mishin@mh.net.ru .
