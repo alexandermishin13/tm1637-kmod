@@ -126,22 +126,54 @@ bytes.
 For programming languages which have an ability to use of `ioctl()` calls.
 `ioctl()` functions defined as:
 ```
+struct tm1637_clock_t {
+    int tm_min;
+    int tm_hour;
+    bool tm_colon;
+};
+
 #define TM1637IOC_SET_CLEAR		_IO('T', 1)
 #define TM1637IOC_SET_OFF		_IO('T', 2)
 #define TM1637IOC_SET_ON		_IO('T', 3)
 #define TM1637IOC_SET_BRIGHTNESS	_IOW('T', 11, uint8_t)
 #define TM1637IOC_SET_CLOCKPOINT	_IOW('T', 12, uint8_t)
 #define TM1637IOC_SET_RAWMODE		_IOW('T', 13, uint8_t)
+#define TM1637IOC_SET_SET_CLOCK		_IOW('T', 14 struct tm1637_clock_t)
 #define TM1637IOC_GET_RAWMODE		_IOR('T', 23, uint8_t)
 ```
 You could `clear`, `off` and `on` the display just simple as that.
 ```
 dev_fd = open("/dev/tm1637", O_WRONLY);
-ioctl(dev_fd, TM1637_DISPLAY_CLEAR);
-ioctl(dev_fd, TM1637_DISPLAY_ON);
+ioctl(dev_fd, TM1637IOC_DISPLAY_CLEAR);
+ioctl(dev_fd, TM1637IOC_DISPLAY_ON);
 ....
-ioctl(dev_fd, TM1637_DISPLAY_OFF);
+ioctl(dev_fd, TM1637IOC_DISPLAY_OFF);
 close(dev_fd);
+```
+
+Especially for a time displaing You can use a call of TM1637IOC_SET_CLOCK
+ioctl just by coping `tm_hour` and `tm_min` fields from a `struct tm` variable
+to a `struct tm1637_clock_t` one.
+```
+struct tm1637_clock_t cl;
+struct tm tm;
+time_t rawtime;
+
+time (&rawtime);
+localtime_r(&rawtime, &tm);
+
+cl.tm_min = tm.tm_min;
+cl.tm_hour = tm.tm_hour;
+cl.tm_colon = true;
+
+ioctl(dev_fd, TM1637IOC_SET_CLOCK, &cl);
+```
+Or use a call of TM1637IOC_SET_CLOCKPOINT ioctl for a clockpoint change only:
+```
+bool clockpoint;
+
+clockpoint = true;
+ioctl(dev_fd, TM1637IOC_SET_CLOCKPOINT, &clockpoint);
 ```
 
 ## Examples
