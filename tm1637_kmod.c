@@ -244,7 +244,7 @@ tm1637_gpio_start(struct tm1637_softc *sc)
 /*
  * Send a byte of information w/ ack checking
  */
-static void
+static int
 tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 {
     int i;
@@ -281,7 +281,9 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
     gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
 
     if (noack)
-	device_printf(sc->tm1637_dev, "No ack when sent %02x\n", data);
+	return EIO;
+
+    return 0;
 }
 
 /*
@@ -294,6 +296,28 @@ tm1637_gpio_stop(struct tm1637_softc *sc)
     DELAY(1);
     gpio_pin_set_active(sc->tm1637_sclpin, true);
     gpio_pin_set_active(sc->tm1637_sdapin, true);
+}
+
+static int
+tm1637_sendcommand(struct tm1637_softc *sc, u_char cmd)
+{
+    int err;
+
+    tm1637_gpio_start(sc);
+    err = tm1637_gpio_sendbyte(sc, cmd);
+    tm1637_gpio_stop(sc);
+
+    if (err)
+    {
+	device_printf(sc->tm1637_dev, "No ack when sent command 0x%02x, resending\n", cmd);
+	tm1637_gpio_start(sc);
+	err = tm1637_gpio_sendbyte(sc, cmd);
+	tm1637_gpio_stop(sc);
+	if (err)
+	    device_printf(sc->tm1637_dev, "No ack when resent command 0x%02x, canceled\n", cmd);
+    }
+
+    return err;
 }
 
 /*
@@ -325,14 +349,19 @@ static void
 tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 {
     size_t position;
+    int err;
+
+    // Need an update next time if EIO
+    err = tm1637_sendcommand(sc, TM1637_ADDRESS_AUTO);
+    if (err)
+    {
+	sc->tm1637_needupdate = true;
+	return;
+    }
 
 #ifdef DEBUG
     uprintf("display: ");
 #endif
-
-    tm1637_gpio_start(sc); // Start a byte
-    tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_AUTO); // Send an address autoincrement command to tm1637
-    tm1637_gpio_stop(sc);  // Stop a byte
 
     tm1637_gpio_start(sc); // Start a byte sequence
     tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + first); // Send a start address to tm1637
@@ -360,6 +389,8 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 static void
 tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 {
+    int err;
+
     if (clockpoint)
 	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
     else
@@ -372,9 +403,13 @@ tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
             sc->tm1637_digits[TM1637_COLON_POSITION - 1]);
 #endif
 
-    tm1637_gpio_start(sc); // Start a byte
-    tm1637_gpio_sendbyte(sc, TM1637_ADDRESS_FIXED); // Send a fixed address command to tm1637
-    tm1637_gpio_stop(sc);  // Stop a byte
+    // Need an update next time if EIO
+    err = tm1637_sendcommand(sc, TM1637_ADDRESS_FIXED);
+    if (err)
+    {
+	sc->tm1637_needupdate = true;
+	return;
+    }
 
     tm1637_gpio_start(sc); // Start a byte sequence
     tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + TM1637_COLON_POSITION - 1); // Send a start address to tm1637
@@ -455,6 +490,8 @@ tm1637_clear_display(struct tm1637_softc *sc)
 static void
 tm1637_display_on(struct tm1637_softc *sc)
 {
+    int err;
+
     // Do nothing is always on
     if(sc->tm1637_on == 0)
     {
@@ -464,9 +501,8 @@ tm1637_display_on(struct tm1637_softc *sc)
 	    sc->tm1637_needupdate = false;
 	}
 	sc->tm1637_on = 1;
-	tm1637_gpio_start(sc); // Start a byte
-	tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
-	tm1637_gpio_stop(sc); // Stop a byte
+
+	err = tm1637_sendcommand(sc, 0x88|sc->tm1637_brightness);
 
 #ifdef DEBUG
 	uprintf("Display turned on\n");
@@ -481,6 +517,7 @@ tm1637_display_on(struct tm1637_softc *sc)
 static void
 tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 {
+    int err;
 
 #ifdef DEBUG
     uprintf("Brightness level ");
@@ -494,9 +531,7 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 	// Only change variable if a display is not on
 	if(sc->tm1637_on != 0)
 	{
-	    tm1637_gpio_start(sc); // Start a byte
-	    tm1637_gpio_sendbyte(sc, 0x88|sc->tm1637_brightness);
-	    tm1637_gpio_stop(sc); // Stop a byte
+	    err = tm1637_sendcommand(sc, 0x88|sc->tm1637_brightness);
 
 #ifdef DEBUG
 	    uprintf("is %d now\n", sc->tm1637_brightness);
@@ -524,13 +559,13 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 static void
 tm1637_display_off(struct tm1637_softc *sc)
 {
+    int err;
+
     // Do nothing is always off
     if(sc->tm1637_on != 0)
     {
 	sc->tm1637_on = 0;
-	tm1637_gpio_start(sc); // Start a byte
-	tm1637_gpio_sendbyte(sc, 0x80);
-	tm1637_gpio_stop(sc); // Stop a byte
+	err = tm1637_sendcommand(sc, 0x80);
 
 #ifdef DEBUG
 	uprintf("Display turned off\n");
