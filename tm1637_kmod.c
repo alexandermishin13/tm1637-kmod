@@ -627,11 +627,11 @@ tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
     t = clock.tm_hour / 10;
     sc->tm1637_digits[0] = char_code[t&0x0f];
     t = clock.tm_hour % 10;
-    sc->tm1637_digits[1] = char_code[t&0x0f];
+    sc->tm1637_digits[1] = char_code[t];
     t = clock.tm_min / 10;
     sc->tm1637_digits[2] = char_code[t&0x0f];
     t = clock.tm_min % 10;
-    sc->tm1637_digits[3] = char_code[t&0x0f];
+    sc->tm1637_digits[3] = char_code[t];
 
     if (clock.tm_colon)
 	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
