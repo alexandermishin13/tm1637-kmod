@@ -299,7 +299,7 @@ tm1637_gpio_stop(struct tm1637_softc *sc)
 }
 
 static int
-tm1637_sendcommand(struct tm1637_softc *sc, u_char cmd)
+tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 {
     int err;
 
@@ -318,6 +318,46 @@ tm1637_sendcommand(struct tm1637_softc *sc, u_char cmd)
     }
 
     return err;
+}
+
+static int
+tm1637_send_data1(struct tm1637_softc *sc, int pos)
+{
+    int err;
+    u_char addr = TM1637_START_ADDRESS + pos;
+    u_char data = sc->tm1637_digits[pos];
+
+    tm1637_gpio_start(sc);
+    // Send address
+    err = tm1637_gpio_sendbyte(sc, addr);
+    if (err)
+    {
+	tm1637_gpio_stop(sc);
+	device_printf(sc->tm1637_dev, "No ack when sent address 0x%02x, resending\n", addr);
+	tm1637_gpio_start(sc);
+	err = tm1637_gpio_sendbyte(sc, addr);
+	if (err)
+	{
+	    tm1637_gpio_stop(sc);
+	    device_printf(sc->tm1637_dev, "No ack when resent address 0x%02x, canceled\n", addr);
+
+	    return err;
+	}
+    }
+
+    // Send data
+    err = tm1637_gpio_sendbyte(sc, data);
+    if (err)
+    {
+	err = tm1637_gpio_sendbyte(sc, data);
+	tm1637_gpio_stop(sc);
+	device_printf(sc->tm1637_dev, "No ack when sent data 0x%02x twice, canceled\n", data);
+
+	return err;
+    }
+    tm1637_gpio_stop(sc);
+
+    return 0;
 }
 
 /*
@@ -352,7 +392,7 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
     int err;
 
     // Need an update next time if EIO
-    err = tm1637_sendcommand(sc, TM1637_ADDRESS_AUTO);
+    err = tm1637_send_command(sc, TM1637_ADDRESS_AUTO);
     if (err)
     {
 	sc->tm1637_needupdate = true;
@@ -404,18 +444,20 @@ tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 #endif
 
     // Need an update next time if EIO
-    err = tm1637_sendcommand(sc, TM1637_ADDRESS_FIXED);
+    err = tm1637_send_command(sc, TM1637_ADDRESS_FIXED);
     if (err)
     {
 	sc->tm1637_needupdate = true;
 	return;
     }
 
-    tm1637_gpio_start(sc); // Start a byte sequence
-    tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + TM1637_COLON_POSITION - 1); // Send a start address to tm1637
-
-    tm1637_gpio_sendbyte(sc, sc->tm1637_digits[TM1637_COLON_POSITION - 1]); // Send colom segments to tm1637
-    tm1637_gpio_stop(sc); // Stop a byte sequence
+    // Need an update next time if EIO
+    err = tm1637_send_data1(sc, TM1637_COLON_POSITION - 1);
+    if (err)
+    {
+	sc->tm1637_needupdate = true;
+	return;
+    }
 }
 
 /*
@@ -502,7 +544,7 @@ tm1637_display_on(struct tm1637_softc *sc)
 	}
 	sc->tm1637_on = 1;
 
-	err = tm1637_sendcommand(sc, 0x88|sc->tm1637_brightness);
+	err = tm1637_send_command(sc, 0x88|sc->tm1637_brightness);
 
 #ifdef DEBUG
 	uprintf("Display turned on\n");
@@ -531,7 +573,7 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 	// Only change variable if a display is not on
 	if(sc->tm1637_on != 0)
 	{
-	    err = tm1637_sendcommand(sc, 0x88|sc->tm1637_brightness);
+	    err = tm1637_send_command(sc, 0x88|sc->tm1637_brightness);
 
 #ifdef DEBUG
 	    uprintf("is %d now\n", sc->tm1637_brightness);
@@ -565,7 +607,7 @@ tm1637_display_off(struct tm1637_softc *sc)
     if(sc->tm1637_on != 0)
     {
 	sc->tm1637_on = 0;
-	err = tm1637_sendcommand(sc, 0x80);
+	err = tm1637_send_command(sc, 0x80);
 
 #ifdef DEBUG
 	uprintf("Display turned off\n");
