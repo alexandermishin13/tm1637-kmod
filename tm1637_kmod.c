@@ -320,8 +320,11 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
     return err;
 }
 
+/*
+ * Send one byte data to an address
+ */
 static int
-tm1637_send_data1(struct tm1637_softc *sc, int pos)
+tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
 {
     int err;
     u_char addr = TM1637_START_ADDRESS + pos;
@@ -332,12 +335,14 @@ tm1637_send_data1(struct tm1637_softc *sc, int pos)
     err = tm1637_gpio_sendbyte(sc, addr);
     if (err)
     {
+	// Stop on EIO and resend the address
 	tm1637_gpio_stop(sc);
 	device_printf(sc->tm1637_dev, "No ack when sent address 0x%02x, resending\n", addr);
 	tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, addr);
 	if (err)
 	{
+	    // Give up this time
 	    tm1637_gpio_stop(sc);
 	    device_printf(sc->tm1637_dev, "No ack when resent address 0x%02x, canceled\n", addr);
 
@@ -345,10 +350,11 @@ tm1637_send_data1(struct tm1637_softc *sc, int pos)
 	}
     }
 
-    // Send data
+    // Send data to the address
     err = tm1637_gpio_sendbyte(sc, data);
     if (err)
     {
+	// Resend data to the same address with no stop
 	err = tm1637_gpio_sendbyte(sc, data);
 	tm1637_gpio_stop(sc);
 	device_printf(sc->tm1637_dev, "No ack when sent data 0x%02x twice, canceled\n", data);
@@ -356,6 +362,59 @@ tm1637_send_data1(struct tm1637_softc *sc, int pos)
 	return err;
     }
     tm1637_gpio_stop(sc);
+
+    return 0;
+}
+
+/*
+ * Send number of bytes fron first to last address
+ */
+static int
+tm1637_send_data(struct tm1637_softc *sc, size_t first, size_t last)
+{
+    int err;
+    size_t pos;
+    u_char addr = TM1637_START_ADDRESS + first;
+
+    tm1637_gpio_start(sc);
+    // Send address
+    err = tm1637_gpio_sendbyte(sc, addr);
+    if (err)
+    {
+	// Stop on EIO and resend the address
+	tm1637_gpio_stop(sc);
+	device_printf(sc->tm1637_dev, "No ack when sent address 0x%02x, resending\n", addr);
+	tm1637_gpio_start(sc);
+	err = tm1637_gpio_sendbyte(sc, addr);
+	if (err)
+	{
+	    // Give up this time
+	    tm1637_gpio_stop(sc);
+	    device_printf(sc->tm1637_dev, "No ack when resent address 0x%02x, canceled\n", addr);
+
+	    return err;
+	}
+    }
+
+#ifdef DEBUG
+    uprintf("display: ");
+#endif
+
+    // Send change digits
+    for(pos=first; pos<=last; pos++)
+    {
+
+#ifdef DEBUG
+	uprintf("%i[    %02x]", pos, sc->tm1637_digits[pos]);
+#endif
+
+	err = tm1637_gpio_sendbyte(sc, sc->tm1637_digits[pos]); // Send colom segments to tm1637
+    }
+    tm1637_gpio_stop(sc); // Stop a byte sequence
+
+#ifdef DEBUG
+    uprintf("\n");
+#endif
 
     return 0;
 }
@@ -388,39 +447,19 @@ tm1637_restore_digits(struct tm1637_softc *sc)
 static void
 tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 {
-    size_t position;
     int err;
 
-    // Need an update next time if EIO
+    // Prepare to an autoincremented address data transfer
     err = tm1637_send_command(sc, TM1637_ADDRESS_AUTO);
     if (err)
-    {
 	sc->tm1637_needupdate = true;
-	return;
-    }
-
-#ifdef DEBUG
-    uprintf("display: ");
-#endif
-
-    tm1637_gpio_start(sc); // Start a byte sequence
-    tm1637_gpio_sendbyte(sc, TM1637_START_ADDRESS + first); // Send a start address to tm1637
-
-    // Send change digits
-    for(position=first; position<=last; position++)
+    else
     {
-
-#ifdef DEBUG
-	uprintf("%i[    %02x]", position, sc->tm1637_digits[position]);
-#endif
-
-	tm1637_gpio_sendbyte(sc, sc->tm1637_digits[position]); // Send colom segments to tm1637
+	// If no error send the data
+	err = tm1637_send_data(sc, first, last);
+	if (err)
+	    sc->tm1637_needupdate = true;
     }
-    tm1637_gpio_stop(sc); // Stop a byte sequence
-
-#ifdef DEBUG
-    uprintf("\n");
-#endif
 }
 
 /*
@@ -443,20 +482,16 @@ tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
             sc->tm1637_digits[TM1637_COLON_POSITION - 1]);
 #endif
 
-    // Need an update next time if EIO
+    // Prepare to an one byte data transfer
     err = tm1637_send_command(sc, TM1637_ADDRESS_FIXED);
     if (err)
-    {
 	sc->tm1637_needupdate = true;
-	return;
-    }
-
-    // Need an update next time if EIO
-    err = tm1637_send_data1(sc, TM1637_COLON_POSITION - 1);
-    if (err)
+    else
     {
-	sc->tm1637_needupdate = true;
-	return;
+	// If no error send the on byte data
+	err = tm1637_send_data1(sc, TM1637_COLON_POSITION - 1);
+	if (err)
+	    sc->tm1637_needupdate = true;
     }
 }
 
@@ -624,6 +659,7 @@ tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
 {
     int t;
 
+    // Four clock digits
     t = clock.tm_hour / 10;
     sc->tm1637_digits[0] = char_code[t&0x0f];
     t = clock.tm_hour % 10;
@@ -633,6 +669,7 @@ tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
     t = clock.tm_min % 10;
     sc->tm1637_digits[3] = char_code[t];
 
+    // Clockpoint
     if (clock.tm_colon)
 	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
 
