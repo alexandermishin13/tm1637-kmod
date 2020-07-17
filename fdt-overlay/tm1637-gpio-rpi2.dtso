@@ -21,6 +21,8 @@
 	gpios = <&gpio 20 0 /* scl */
 		 &gpio 21 0 /* sda */
 		>;
+	#address-cells = <1>;
+	#size-cells = <0>;
 	scl = <0>; // GPIO20 (38)
 	sda = <1>; // GPIO21 (40)
 

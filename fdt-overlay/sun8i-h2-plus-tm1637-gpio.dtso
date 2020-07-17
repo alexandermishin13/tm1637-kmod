@@ -20,6 +20,8 @@
 	pinctrl-0 = <&tm1637_pins>;
 	gpios = <&pio 2 4 0
 	         &pio 2 7 0>;
+	#address-cells = <1>;
+	#size-cells = <0>;
 	scl = <0>; // PC4 (16)
 	sda = <1>; // PC7 (18)
 
