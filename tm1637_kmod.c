@@ -296,6 +296,7 @@ tm1637_gpio_stop(struct tm1637_softc *sc)
     DELAY(1);
     gpio_pin_set_active(sc->tm1637_sclpin, true);
     gpio_pin_set_active(sc->tm1637_sdapin, true);
+    DELAY(1);
 }
 
 /*
@@ -528,39 +529,56 @@ tm1637_update_display(struct tm1637_softc *sc)
 {
     size_t first = TM1637_MAX_COLOM, position, last = 0;
 
-    // Finding a range of changed digits
-#ifdef DEBUG
-    uprintf("changed: ");
-#endif
-    for(position=0; position<TM1637_MAX_COLOM; position++)
+    if(sc->tm1637_needupdate)
     {
-	if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
+	// If display is on update it all and clear the flag
+	if(sc->tm1637_on)
 	{
+	    first = 0;
+	    last = TM1637_MAX_COLOM - 1;
 #ifdef DEBUG
-	    uprintf("%i[%02x->%02x]", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
+	    uprintf("Needs to be updated all\n");
 #endif
-	    sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
-
-	    // Last changed digit
-	    last = position;
-	    // First changed digit
-	    if (first == TM1637_MAX_COLOM)
-		first = position;
+	    tm1637_display_digits(sc, first, last);
+	    sc->tm1637_needupdate = false;
 	}
     }
+    else
+    {
+	// Finding a range of changed digits
+#ifdef DEBUG
+	uprintf("changed: ");
+#endif
+	for(position=0; position<TM1637_MAX_COLOM; position++)
+	{
+	    if(sc->tm1637_digits_prev[position] != sc->tm1637_digits[position])
+	    {
+#ifdef DEBUG
+		uprintf("%i[%02x->%02x]", position, sc->tm1637_digits_prev[position], sc->tm1637_digits[position]);
+#endif
+		sc->tm1637_digits_prev[position] = sc->tm1637_digits[position];
+
+		// Last changed digit
+		last = position;
+		// First changed digit
+		if (first == TM1637_MAX_COLOM)
+		    first = position;
+	    }
+	}
 
 #ifdef DEBUG
-    uprintf("\n");
+	uprintf("\n");
 #endif
 
-    // Display an optimized part of row of digits
-    // or mark it for update if it is off
-    if(first < TM1637_MAX_COLOM)
-    {
-	if(sc->tm1637_on)
-	    tm1637_display_digits(sc, first, last);
-	else
-	    sc->tm1637_needupdate = true;
+	// Display an optimized part of row of digits
+	// or mark it for update if it is off
+	if(first < TM1637_MAX_COLOM)
+	{
+	    if(sc->tm1637_on)
+		tm1637_display_digits(sc, first, last);
+	    else
+		sc->tm1637_needupdate = true;
+	}
     }
 }
 
