@@ -29,13 +29,7 @@
 #ifndef _TM1637_KMOD_H_
 #define _TM1637_KMOD_H_
 
-#define TM1637_CDEV_NAME	"tm1637"
-#define TM1637_SCL_PROPERTY	"scl-gpios"
-#define TM1637_SDA_PROPERTY	"sda-gpios"
 #define TM1637_MODE_PROPERTY	"mode"
-#define TM1637_SCL_IDX		0
-#define TM1637_SDA_IDX		1
-#define TM1637_MIN_PINS		2
 
 #define TM1637_ACK_TIMEOUT	200
 
@@ -44,21 +38,13 @@
 #define TM1637_START_ADDRESS	0xc0
 
 #define TM1637_BRIGHT_DARKEST	0
+#define TM1637_BRIGHT_DARK	1
 #define TM1637_BRIGHT_TYPICAL	2
 #define TM1637_BRIGHTEST	7
 
 #define	TM1637_COLON_POSITION	2 // 2-nd character
 #define TM1637_MAX_COLOM	4
 #define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2 // For ':' and '\n'
-
-#define TM1637_LOCK_INIT(sc)	\
-    mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
-#define TM1637_LOCK_DESTROY(sc)	\
-    mtx_destroy(&(sc)->lock)
-#define TM1637_LOCK(sc)		\
-    mtx_lock(&(sc)->lock)
-#define TM1637_UNLOCK(sc)	\
-    mtx_unlock(&(sc)->lock)
 
 struct tm1637_clock_t {
     int tm_min;
@@ -81,33 +67,6 @@ struct s_message {
     int len;
 };
 
-struct tm1637_softc {
-    device_t		 tm1637_dev;
-    phandle_t		 tm1637_node;
-    device_t		 tm1637_busdev;
-    gpio_pin_t		 tm1637_sclpin;
-    gpio_pin_t		 tm1637_sdapin;
-    uint8_t		 tm1637_brightness;
-    uint8_t		 tm1637_on;
-    uint8_t		 tm1637_raw_mode;
-    bool		 tm1637_needupdate;
-    bool		 tm1637_inuse;
-    u_char		 tm1637_digits[TM1637_MAX_COLOM];
-    u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
-    struct mtx		 lock;
-    struct cdev		*tm1637_cdev;
-    struct s_message	*tm1637_buf;
-    struct s_message	*tm1637_msg;
-};
-
 MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 module");
-
-static int tm1637_probe(device_t);
-static int tm1637_attach(device_t);
-static int tm1637_detach(device_t);
-static int tm1637_read(struct cdev*, struct uio*, int ioflag);
-static int tm1637_write(struct cdev*, struct uio*, int ioflag);
-static int tm1637_ioctl(struct cdev*, u_long cmd, caddr_t data, int fflag, struct thread*);
-static void tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness);
 
 #endif /* _TM1637_KMOD_H_ */

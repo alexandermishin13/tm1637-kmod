@@ -47,13 +47,58 @@
 
 #include "tm1637_kmod.h"
 
+#define TM1637_CDEV_NAME	"tm1637"
+#define TM1637_SCL_PROPERTY	"scl-gpios"
+#define TM1637_SDA_PROPERTY	"sda-gpios"
+#define TM1637_SCL_IDX		0
+#define TM1637_SDA_IDX		1
+#define TM1637_MIN_PINS		2
+
 #define SIGN_MINUS		0x40
 #define SIGN_EMPTY		0x00
 
-static u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
+#define TM1637_LOCK_INIT(sc)	\
+    mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
+#define TM1637_LOCK_DESTROY(sc)	\
+    mtx_destroy(&(sc)->lock)
+#define TM1637_LOCK(sc)		\
+    mtx_lock(&(sc)->lock)
+#define TM1637_UNLOCK(sc)	\
+    mtx_unlock(&(sc)->lock)
 
-static void tm1637_display_on(struct tm1637_softc *sc);
-static void tm1637_display_off(struct tm1637_softc *sc);
+static const u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
+
+struct tm1637_softc {
+    device_t		 tm1637_dev;
+    phandle_t		 tm1637_node;
+    device_t		 tm1637_busdev;
+    gpio_pin_t		 tm1637_sclpin;
+    gpio_pin_t		 tm1637_sdapin;
+    uint8_t		 tm1637_brightness;
+    uint8_t		 tm1637_on;
+    uint8_t		 tm1637_raw_mode;
+    bool		 tm1637_needupdate;
+    bool		 tm1637_inuse;
+    u_char		 tm1637_digits[TM1637_MAX_COLOM];
+    u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
+    u_int		 udelay; /* signal toggle delay in usec */
+    u_int		 scl_low_timeout;
+    struct mtx		 lock;
+    struct cdev		*tm1637_cdev;
+    struct s_message	*tm1637_buf;
+    struct s_message	*tm1637_msg;
+};
+
+static int tm1637_probe(device_t);
+static int tm1637_attach(device_t);
+static int tm1637_detach(device_t);
+
+static int tm1637_read(struct cdev*, struct uio*, int ioflag);
+static int tm1637_write(struct cdev*, struct uio*, int ioflag);
+static int tm1637_ioctl(struct cdev*, u_long cmd, caddr_t data, int fflag, struct thread*);
+static void tm1637_display_on(struct tm1637_softc*);
+static void tm1637_display_off(struct tm1637_softc*);
+static void tm1637_set_brightness(struct tm1637_softc*, uint8_t);
 
 #ifdef FDT
 #include <dev/ofw/ofw_bus.h>
