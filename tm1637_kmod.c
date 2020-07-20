@@ -53,6 +53,10 @@
 #define TM1637_SCL_IDX		0
 #define TM1637_SDA_IDX		1
 #define TM1637_MIN_PINS		2
+#define TM1637_BUSFREQ		250000
+
+/* Based on the SMBus specification. */
+#define	DEFAULT_SCL_LOW_TIMEOUT	(25 * 1000)
 
 #define SIGN_MINUS		0x40
 #define SIGN_EMPTY		0x00
@@ -65,6 +69,12 @@
     mtx_lock(&(sc)->lock)
 #define TM1637_UNLOCK(sc)	\
     mtx_unlock(&(sc)->lock)
+
+#define BB_SET(sc, ctrl, val) do {			\
+	tm1637_setscl(sc, ctrl);			\
+	gpio_pin_set_active(sc->tm1637_sdapin, val);	\
+	DELAY(sc->udelay);				\
+	} while (0)
 
 static const u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
@@ -92,6 +102,12 @@ struct tm1637_softc {
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
+
+static void tm1637_set_speed(struct tm1637_softc*, u_int);
+static void tm1637_setscl(struct tm1637_softc*, bool);
+static int tm1637_gpio_start(struct tm1637_softc*);
+static int tm1637_gpio_stop(struct tm1637_softc*);
+static int tm1637_gpio_ack(struct tm1637_softc*, int timeout);
 
 static int tm1637_read(struct cdev*, struct uio*, int ioflag);
 static int tm1637_write(struct cdev*, struct uio*, int ioflag);
@@ -270,20 +286,62 @@ tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
     return (error);
 }
 
+static void
+tm1637_setscl(struct tm1637_softc *sc, bool val)
+{
+    sbintime_t now, end;
+    int fast_timeout;
+    bool scl_val;
+
+    gpio_pin_set_active(sc->tm1637_sclpin, val);
+    DELAY(sc->udelay);
+
+    /* Pulling low cannot fail. */
+    if (!val)
+	return;
+
+    /* Use DELAY for up to 1 ms, then switch to pause. */
+    end = sbinuptime() + sc->scl_low_timeout * SBT_1US;
+    fast_timeout = MIN(sc->scl_low_timeout, 1000);
+    while (fast_timeout > 0) {
+	gpio_pin_is_active(sc->tm1637_sdapin, &scl_val);
+	if (scl_val)
+	    return;
+	gpio_pin_set_active(sc->tm1637_sclpin, true);	/* redundant ? */
+	DELAY(sc->udelay);
+	fast_timeout -= sc->udelay;
+    }
+
+    gpio_pin_is_active(sc->tm1637_sdapin, &scl_val);
+    while (!scl_val) {
+	now = sbinuptime();
+	if (now >= end)
+	    break;
+	pause_sbt("tm1637-scl-low", SBT_1MS, C_PREL(8), 0);
+    }
+}
+
 /*
  * Start command or data transmission
  */
-static void
+static int
 tm1637_gpio_start(struct tm1637_softc *sc)
 {
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
+    bool scl_val;
 
-    gpio_pin_set_active(sc->tm1637_sclpin, true);
-    gpio_pin_set_active(sc->tm1637_sdapin, true);
-    DELAY(1);
-    gpio_pin_set_active(sc->tm1637_sdapin, false);
-    gpio_pin_set_active(sc->tm1637_sclpin, false);
+    BB_SET(sc, true, true);
+
+    /* SCL must be high now. */
+    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
+    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+    if (!scl_val)
+	return (EIO);
+
+    BB_SET(sc, true, false);
+    BB_SET(sc, false, false);
+
+    return (0);
 }
 
 /*
@@ -293,8 +351,6 @@ static int
 tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 {
     int i;
-    int k = 0;
-    bool noack;
 
     for(i=0; i<8; i++)
     {
@@ -305,27 +361,7 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 	gpio_pin_set_active(sc->tm1637_sclpin, true);
     }
 
-    // Ask a peer to an acknowledge on DIO
-    //gpio_pin_set_active(sc->tm1637_sdapin, true);
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_INPUT);
-    gpio_pin_set_active(sc->tm1637_sclpin, false);
-    DELAY(1);
-    gpio_pin_set_active(sc->tm1637_sclpin, true);
-
-    // Waiting a zero data bit as an ACK
-    do {
-	gpio_pin_is_active(sc->tm1637_sdapin, &noack);
-	if (!noack)
-		break;
-	DELAY(1);
-	k++;
-    } while (k < TM1637_ACK_TIMEOUT);
-
-    // Ask a peer to release DIO
-    gpio_pin_set_active(sc->tm1637_sclpin, false);
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
-
-    if (noack)
+    if (tm1637_gpio_ack(sc, TM1637_ACK_TIMEOUT))
 	return EIO;
 
     return 0;
@@ -334,14 +370,55 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 /*
  * Stop command or data transmission
  */
-static void
+static int
 tm1637_gpio_stop(struct tm1637_softc *sc)
 {
-    gpio_pin_set_active(sc->tm1637_sdapin, false);
-    DELAY(1);
-    gpio_pin_set_active(sc->tm1637_sclpin, true);
-    gpio_pin_set_active(sc->tm1637_sdapin, true);
-    DELAY(1);
+    bool scl_val;
+
+    BB_SET(sc, false, false);
+    BB_SET(sc, true, false);
+    BB_SET(sc, true, true);
+    
+    /* SCL must be high now. */
+    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
+    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+    if (!scl_val)
+	return (EIO);
+
+    return (0);
+}
+
+static int
+tm1637_gpio_ack(struct tm1637_softc *sc, int timeout)
+{
+    bool scl_val;
+    bool noack;
+    int k = 0;
+
+    BB_SET(sc, false, true);
+    BB_SET(sc, true, true);
+
+    /* SCL must be high now. */
+    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
+    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+    if (!scl_val)
+	return (EIO);
+
+    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_INPUT);
+    do {
+	gpio_pin_is_active(sc->tm1637_sdapin, &noack);
+	if (!noack)
+	    break;
+	DELAY(1);
+	k++;
+    } while (k < timeout);
+    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
+
+    BB_SET(sc, false, true);
+
+    return (noack ? EIO : 0);
 }
 
 /*
@@ -1320,6 +1397,7 @@ tm1637_attach(device_t dev)
     }
 
     sc->tm1637_cdev->si_drv1 = sc;
+    tm1637_set_speed(sc, TM1637_BUSFREQ);
 
     /* Set properties */
     uint32_t brightness;
@@ -1337,6 +1415,10 @@ tm1637_attach(device_t dev)
 	sc->tm1637_raw_mode = 0;
 
     /* Create sysctl variables and set their handlers */
+    SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
+	"delay", CTLFLAG_RD, &sc->udelay,
+	0, "Signal change delay controlled by bus frequency, microseconds");
+
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
 	"brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
 	&tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
@@ -1356,4 +1438,12 @@ tm1637_attach(device_t dev)
     tm1637_display_on(sc);
 
     return (0);
+}
+
+/* Set bus speed in Hz */
+static void
+tm1637_set_speed(struct tm1637_softc *sc, u_int busfreq)
+{
+    u_int period = 1000000 / busfreq;		/* Hz -> uS */
+    sc->udelay = MAX(period, 1);
 }
