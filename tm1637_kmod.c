@@ -70,7 +70,7 @@
 #define TM1637_UNLOCK(sc)	\
     mtx_unlock(&(sc)->lock)
 
-#define BB_SET(sc, ctrl, val) do {			\
+#define TM1637_BB_SET(sc, ctrl, val) do {			\
 	tm1637_setscl(sc, ctrl);			\
 	gpio_pin_set_active(sc->tm1637_sdapin, val);	\
 	DELAY(sc->udelay);				\
@@ -329,7 +329,7 @@ tm1637_gpio_start(struct tm1637_softc *sc)
 {
     bool scl_val;
 
-    BB_SET(sc, true, true);
+    TM1637_BB_SET(sc, true, true);
 
     /* SCL must be high now. */
     gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
@@ -338,8 +338,8 @@ tm1637_gpio_start(struct tm1637_softc *sc)
     if (!scl_val)
 	return (EIO);
 
-    BB_SET(sc, true, false);
-    BB_SET(sc, false, false);
+    TM1637_BB_SET(sc, true, false);
+    TM1637_BB_SET(sc, false, false);
 
     return (0);
 }
@@ -351,14 +351,16 @@ static int
 tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 {
     int i;
+    bool data_bit;
 
-    for(i=0; i<8; i++)
+    // LSB first
+    for(i=0; i<=7; i++)
     {
-	gpio_pin_set_active(sc->tm1637_sclpin, false);
-	// Set the data bit, CLK is low after start
-	gpio_pin_set_active(sc->tm1637_sdapin, (bool)(data&(1<<i))); //LSB first
-	// The data bit is ready
-	gpio_pin_set_active(sc->tm1637_sclpin, true);
+	data_bit = (bool)(data&(1<<i));
+
+	TM1637_BB_SET(sc, false, data_bit);
+	TM1637_BB_SET(sc, true, data_bit);
+	TM1637_BB_SET(sc, false, data_bit);
     }
 
     if (tm1637_gpio_ack(sc, TM1637_ACK_TIMEOUT))
@@ -375,9 +377,9 @@ tm1637_gpio_stop(struct tm1637_softc *sc)
 {
     bool scl_val;
 
-    BB_SET(sc, false, false);
-    BB_SET(sc, true, false);
-    BB_SET(sc, true, true);
+    TM1637_BB_SET(sc, false, false);
+    TM1637_BB_SET(sc, true, false);
+    TM1637_BB_SET(sc, true, true);
     
     /* SCL must be high now. */
     gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
@@ -396,8 +398,8 @@ tm1637_gpio_ack(struct tm1637_softc *sc, int timeout)
     bool noack;
     int k = 0;
 
-    BB_SET(sc, false, true);
-    BB_SET(sc, true, true);
+    TM1637_BB_SET(sc, false, true);
+    TM1637_BB_SET(sc, true, true);
 
     /* SCL must be high now. */
     gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
@@ -416,7 +418,7 @@ tm1637_gpio_ack(struct tm1637_softc *sc, int timeout)
     } while (k < timeout);
     gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
 
-    BB_SET(sc, false, true);
+    TM1637_BB_SET(sc, false, true);
 
     return (noack ? EIO : 0);
 }
