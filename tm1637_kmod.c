@@ -53,7 +53,7 @@
 #define TM1637_SCL_IDX		0
 #define TM1637_SDA_IDX		1
 #define TM1637_MIN_PINS		2
-#define TM1637_BUSFREQ		250000
+#define TM1637_BUSFREQ		450000
 
 /* Based on the SMBus specification. */
 #define	DEFAULT_SCL_LOW_TIMEOUT	(25 * 1000)
