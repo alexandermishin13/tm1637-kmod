@@ -312,7 +312,7 @@ tm1637_setscl(struct tm1637_softc *sc, bool val)
 	fast_timeout -= sc->udelay;
     }
 
-    gpio_pin_is_active(sc->tm1637_sdapin, &scl_val);
+    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
     while (!scl_val) {
 	now = sbinuptime();
 	if (now >= end)
