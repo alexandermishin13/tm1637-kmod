@@ -70,31 +70,30 @@
 #define TM1637_UNLOCK(sc)	\
     mtx_unlock(&(sc)->lock)
 
-#define TM1637_BB_SET(sc, ctrl, val) do {			\
+#define GPIOBB_SET(sc, ctrl, val) do {			\
 	tm1637_setscl(sc, ctrl);			\
-	gpio_pin_set_active(sc->tm1637_sdapin, val);	\
+	gpio_pin_set_active(sc->sdapin, val);	\
 	DELAY(sc->udelay);				\
 	} while (0)
 
 static const u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
 struct tm1637_softc {
-    device_t		 tm1637_dev;
-    phandle_t		 tm1637_node;
-    device_t		 tm1637_busdev;
-    gpio_pin_t		 tm1637_sclpin;
-    gpio_pin_t		 tm1637_sdapin;
-    uint8_t		 tm1637_brightness;
-    uint8_t		 tm1637_on;
-    uint8_t		 tm1637_raw_mode;
-    bool		 tm1637_needupdate;
-    bool		 tm1637_inuse;
+    device_t		 dev;
+    phandle_t		 node;
+    gpio_pin_t		 sclpin;
+    gpio_pin_t		 sdapin;
+    uint8_t		 brightness;
+    uint8_t		 on;
+    uint8_t		 raw_mode;
+    bool		 needupdate;
+    bool		 inuse;
     u_char		 tm1637_digits[TM1637_MAX_COLOM];
     u_char		 tm1637_digits_prev[TM1637_MAX_COLOM];
     u_int		 udelay; /* signal toggle delay in usec */
     u_int		 scl_low_timeout;
     struct mtx		 lock;
-    struct cdev		*tm1637_cdev;
+    struct cdev		*cdev;
     struct s_message	*tm1637_buf;
     struct s_message	*tm1637_msg;
 };
@@ -159,32 +158,32 @@ tm1637_setup_fdt_pins(struct tm1637_softc *sc)
      * property.  The modern bindings specify separate scl-gpios and
      * sda-gpios properties.  We cope with whichever is present.
      */
-    if (OF_hasprop(sc->tm1637_node, "gpios")) {
-	if ((err = gpio_pin_get_by_ofw_idx(sc->tm1637_dev, sc->tm1637_node, TM1637_SCL_IDX, &sc->tm1637_sclpin)) != 0)
+    if (OF_hasprop(sc->node, "gpios")) {
+	if ((err = gpio_pin_get_by_ofw_idx(sc->dev, sc->node, TM1637_SCL_IDX, &sc->sclpin)) != 0)
 	{
-	    device_printf(sc->tm1637_dev, "invalid gpios property for index:%d\n", TM1637_SCL_IDX);
+	    device_printf(sc->dev, "invalid gpios property for index:%d\n", TM1637_SCL_IDX);
 	    return (err);
 	}
-	if ((err = gpio_pin_get_by_ofw_idx(sc->tm1637_dev, sc->tm1637_node, TM1637_SDA_IDX, &sc->tm1637_sdapin)) != 0)
+	if ((err = gpio_pin_get_by_ofw_idx(sc->dev, sc->node, TM1637_SDA_IDX, &sc->sdapin)) != 0)
 	{
-	    device_printf(sc->tm1637_dev, "invalid gpios property for index:%d\n", TM1637_SDA_IDX);
+	    device_printf(sc->dev, "invalid gpios property for index:%d\n", TM1637_SDA_IDX);
 	    return (err);
 	}
     } else {
-	if ((err = gpio_pin_get_by_ofw_property(sc->tm1637_dev, sc->tm1637_node, TM1637_SCL_PROPERTY, &sc->tm1637_sclpin)) != 0)
+	if ((err = gpio_pin_get_by_ofw_property(sc->dev, sc->node, TM1637_SCL_PROPERTY, &sc->sclpin)) != 0)
 	{
-	    device_printf(sc->tm1637_dev, "missing %s property\n", TM1637_SCL_PROPERTY);
+	    device_printf(sc->dev, "missing %s property\n", TM1637_SCL_PROPERTY);
 	    return (err);
 	}
-	if ((err = gpio_pin_get_by_ofw_property(sc->tm1637_dev, sc->tm1637_node, TM1637_SDA_PROPERTY, &sc->tm1637_sdapin)) != 0)
+	if ((err = gpio_pin_get_by_ofw_property(sc->dev, sc->node, TM1637_SDA_PROPERTY, &sc->sdapin)) != 0)
 	{
-	    device_printf(sc->tm1637_dev, "missing %s property\n", TM1637_SDA_PROPERTY);
+	    device_printf(sc->dev, "missing %s property\n", TM1637_SDA_PROPERTY);
 	    return (err);
 	}
     }
 
     /* Get pin configuration from pinctrl-0 and ignore errors */
-    err = fdt_pinctrl_configure(sc->tm1637_dev, 0);
+    err = fdt_pinctrl_configure(sc->dev, 0);
 #ifdef DEBUG
     if (err != 0)
 	uprintf("No valid pinctrl-0 configuration. Error: %d\n", err);
@@ -203,7 +202,7 @@ static int
 tm1637_brightness_sysctl(SYSCTL_HANDLER_ARGS)
 {
     struct tm1637_softc *sc = arg1;
-    uint8_t brightness = sc->tm1637_brightness;
+    uint8_t brightness = sc->brightness;
     int error;
 
     error = SYSCTL_OUT(req, &brightness, sizeof(brightness));
@@ -229,7 +228,7 @@ static int
 tm1637_set_on_sysctl(SYSCTL_HANDLER_ARGS)
 {
     struct tm1637_softc *sc = arg1;
-    uint8_t _on = sc->tm1637_on;
+    uint8_t _on = sc->on;
     int error = 0;
 
     error = SYSCTL_OUT(req, &_on, sizeof(_on));
@@ -262,7 +261,7 @@ static int
 tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
 {
     struct tm1637_softc *sc = arg1;
-    uint8_t _raw_mode = sc->tm1637_raw_mode;
+    uint8_t _raw_mode = sc->raw_mode;
     int error = 0;
 
     error = SYSCTL_OUT(req, &_raw_mode, sizeof(_raw_mode));
@@ -277,7 +276,7 @@ tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
     {
 	case 0:
 	case 1:
-	    sc->tm1637_raw_mode = _raw_mode;
+	    sc->raw_mode = _raw_mode;
 	    break;
 	default:
 	    error = EINVAL;
@@ -293,7 +292,7 @@ tm1637_setscl(struct tm1637_softc *sc, bool val)
     int fast_timeout;
     bool scl_val;
 
-    gpio_pin_set_active(sc->tm1637_sclpin, val);
+    gpio_pin_set_active(sc->sclpin, val);
     DELAY(sc->udelay);
 
     /* Pulling low cannot fail. */
@@ -304,15 +303,15 @@ tm1637_setscl(struct tm1637_softc *sc, bool val)
     end = sbinuptime() + sc->scl_low_timeout * SBT_1US;
     fast_timeout = MIN(sc->scl_low_timeout, 1000);
     while (fast_timeout > 0) {
-	gpio_pin_is_active(sc->tm1637_sdapin, &scl_val);
+	gpio_pin_is_active(sc->sdapin, &scl_val);
 	if (scl_val)
 	    return;
-	gpio_pin_set_active(sc->tm1637_sclpin, true);	/* redundant ? */
+	gpio_pin_set_active(sc->sclpin, true);	/* redundant ? */
 	DELAY(sc->udelay);
 	fast_timeout -= sc->udelay;
     }
 
-    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
+    gpio_pin_is_active(sc->sclpin, &scl_val);
     while (!scl_val) {
 	now = sbinuptime();
 	if (now >= end)
@@ -329,17 +328,17 @@ tm1637_gpio_start(struct tm1637_softc *sc)
 {
     bool scl_val;
 
-    TM1637_BB_SET(sc, true, true);
+    GPIOBB_SET(sc, true, true);
 
     /* SCL must be high now. */
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
-    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->sclpin, &scl_val);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT);
     if (!scl_val)
 	return (EIO);
 
-    TM1637_BB_SET(sc, true, false);
-    TM1637_BB_SET(sc, false, false);
+    GPIOBB_SET(sc, true, false);
+    GPIOBB_SET(sc, false, false);
 
     return (0);
 }
@@ -358,9 +357,9 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
     {
 	data_bit = (bool)(data&(1<<i));
 
-	TM1637_BB_SET(sc, false, data_bit);
-	TM1637_BB_SET(sc, true, data_bit);
-	TM1637_BB_SET(sc, false, data_bit);
+	GPIOBB_SET(sc, false, data_bit);
+	GPIOBB_SET(sc, true, data_bit);
+	GPIOBB_SET(sc, false, data_bit);
     }
 
     if (tm1637_gpio_ack(sc, TM1637_ACK_TIMEOUT))
@@ -377,14 +376,14 @@ tm1637_gpio_stop(struct tm1637_softc *sc)
 {
     bool scl_val;
 
-    TM1637_BB_SET(sc, false, false);
-    TM1637_BB_SET(sc, true, false);
-    TM1637_BB_SET(sc, true, true);
+    GPIOBB_SET(sc, false, false);
+    GPIOBB_SET(sc, true, false);
+    GPIOBB_SET(sc, true, true);
     
     /* SCL must be high now. */
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
-    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->sclpin, &scl_val);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT);
     if (!scl_val)
 	return (EIO);
 
@@ -398,27 +397,27 @@ tm1637_gpio_ack(struct tm1637_softc *sc, int timeout)
     bool noack;
     int k = 0;
 
-    TM1637_BB_SET(sc, false, true);
-    TM1637_BB_SET(sc, true, true);
+    GPIOBB_SET(sc, false, true);
+    GPIOBB_SET(sc, true, true);
 
     /* SCL must be high now. */
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_INPUT);
-    gpio_pin_is_active(sc->tm1637_sclpin, &scl_val);
-    gpio_pin_setflags(sc->tm1637_sclpin, GPIO_PIN_OUTPUT);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->sclpin, &scl_val);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT);
     if (!scl_val)
 	return (EIO);
 
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_INPUT);
+    gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
     do {
-	gpio_pin_is_active(sc->tm1637_sdapin, &noack);
+	gpio_pin_is_active(sc->sdapin, &noack);
 	if (!noack)
 	    break;
 	DELAY(1);
 	k++;
     } while (k < timeout);
-    gpio_pin_setflags(sc->tm1637_sdapin, GPIO_PIN_OUTPUT);
+    gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT);
 
-    TM1637_BB_SET(sc, false, true);
+    GPIOBB_SET(sc, false, true);
 
     return (noack ? EIO : 0);
 }
@@ -438,14 +437,14 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 
     if (err)
     {
-	device_printf(sc->tm1637_dev, "No ack when sent command 0x%02x, resending\n", cmd);
+	device_printf(sc->dev, "No ack when sent command 0x%02x, resending\n", cmd);
 
 	tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, cmd);
 	tm1637_gpio_stop(sc);
 
 	if (err)
-	    device_printf(sc->tm1637_dev, "No ack when resent command 0x%02x, canceled\n", cmd);
+	    device_printf(sc->dev, "No ack when resent command 0x%02x, canceled\n", cmd);
     }
 
     return err;
@@ -470,7 +469,7 @@ tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
 	// A stop bit needed before a retry
 	tm1637_gpio_stop(sc);
 
-	device_printf(sc->tm1637_dev, "No ack when sent address 0x%02x, resending\n", addr);
+	device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
 
 	tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, addr);
@@ -479,7 +478,7 @@ tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
 	    // Give up this time and a stop bit
 	    tm1637_gpio_stop(sc);
 
-	    device_printf(sc->tm1637_dev, "No ack when resent address 0x%02x, canceled\n", addr);
+	    device_printf(sc->dev, "No ack when resent address 0x%02x, canceled\n", addr);
 
 	    return err;
 	}
@@ -492,7 +491,7 @@ tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
 	// Resend data to the same address with no stop bit
 	err = tm1637_gpio_sendbyte(sc, data);
 	tm1637_gpio_stop(sc);
-	device_printf(sc->tm1637_dev, "No ack when sent data 0x%02x twice, canceled\n", data);
+	device_printf(sc->dev, "No ack when sent data 0x%02x twice, canceled\n", data);
 
 	return err;
     }
@@ -527,7 +526,7 @@ tm1637_send_data(struct tm1637_softc *sc, size_t *pos, size_t last)
 	// A stop bit needed before a retry
 	tm1637_gpio_stop(sc);
 
-	device_printf(sc->tm1637_dev, "No ack when sent address 0x%02x, resending\n", addr);
+	device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
 
 	tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, addr);
@@ -536,7 +535,7 @@ tm1637_send_data(struct tm1637_softc *sc, size_t *pos, size_t last)
 	    // Give up this time and a stop bit
 	    tm1637_gpio_stop(sc);
 
-	    device_printf(sc->tm1637_dev, "No ack when resent address 0x%02x, canceled\n", addr);
+	    device_printf(sc->dev, "No ack when resent address 0x%02x, canceled\n", addr);
 
 	    return err;
 	}
@@ -604,7 +603,7 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
     // Prepare to an autoincremented address data transfer
     err = tm1637_send_command(sc, TM1637_ADDRESS_AUTO);
     if (err)
-	sc->tm1637_needupdate = true;
+	sc->needupdate = true;
     else
     {
 	// If no error send the data
@@ -614,7 +613,7 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
 	    // Resend rest of data ("first" points to an unsuccessful colom)
 	    err = tm1637_send_data(sc, &first, last);
 	    if (err)
-		sc->tm1637_needupdate = true;
+		sc->needupdate = true;
 	}
     }
 }
@@ -635,13 +634,13 @@ tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
     // Prepare to an one byte data transfer
     err = tm1637_send_command(sc, TM1637_ADDRESS_FIXED);
     if (err)
-	sc->tm1637_needupdate = true;
+	sc->needupdate = true;
     else
     {
 	// If no error send the on byte data
 	err = tm1637_send_data1(sc, TM1637_COLON_POSITION - 1);
 	if (err)
-	    sc->tm1637_needupdate = true;
+	    sc->needupdate = true;
     }
 }
 
@@ -653,10 +652,10 @@ tm1637_update_display(struct tm1637_softc *sc)
 {
     size_t first = TM1637_MAX_COLOM, position, last = 0;
 
-    if(sc->tm1637_needupdate)
+    if(sc->needupdate)
     {
 	// If display is on update it all and clear the flag
-	if(sc->tm1637_on)
+	if(sc->on)
 	{
 	    first = 0;
 	    last = TM1637_MAX_COLOM - 1;
@@ -664,7 +663,7 @@ tm1637_update_display(struct tm1637_softc *sc)
 	    uprintf("Needs to be updated all\n");
 #endif
 	    tm1637_display_digits(sc, first, last);
-	    sc->tm1637_needupdate = false;
+	    sc->needupdate = false;
 	}
     }
     else
@@ -698,10 +697,10 @@ tm1637_update_display(struct tm1637_softc *sc)
 	// or mark it for update if it is off
 	if(first < TM1637_MAX_COLOM)
 	{
-	    if(sc->tm1637_on)
+	    if(sc->on)
 		tm1637_display_digits(sc, first, last);
 	    else
-		sc->tm1637_needupdate = true;
+		sc->needupdate = true;
 	}
     }
 }
@@ -722,10 +721,10 @@ tm1637_clear_display(struct tm1637_softc *sc)
     }
 
     // If display is off right now then mark it for update when it is on
-    if(sc->tm1637_on)
+    if(sc->on)
 	tm1637_display_digits(sc, 0, TM1637_MAX_COLOM - 1);
     else
-	sc->tm1637_needupdate = true;
+	sc->needupdate = true;
 }
 
 /*
@@ -737,16 +736,16 @@ tm1637_display_on(struct tm1637_softc *sc)
     int err;
 
     // Do nothing is always on
-    if(sc->tm1637_on == 0)
+    if(sc->on == 0)
     {
-	if(sc->tm1637_needupdate)
+	if(sc->needupdate)
 	{
 	    tm1637_display_digits(sc, 0, TM1637_MAX_COLOM - 1);
-	    sc->tm1637_needupdate = false;
+	    sc->needupdate = false;
 	}
-	sc->tm1637_on = 1;
+	sc->on = 1;
 
-	err = tm1637_send_command(sc, 0x88|sc->tm1637_brightness);
+	err = tm1637_send_command(sc, 0x88|sc->brightness);
 
 #ifdef DEBUG
 	uprintf("Display turned on\n");
@@ -768,24 +767,24 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 #endif
 
     // If brightness is really changed
-    if ((brightness != sc->tm1637_brightness) &&
+    if ((brightness != sc->brightness) &&
         (brightness <= TM1637_BRIGHTEST))
     {
-	sc->tm1637_brightness = brightness;
+	sc->brightness = brightness;
 	// Only change variable if a display is not on
-	if(sc->tm1637_on != 0)
+	if(sc->on != 0)
 	{
-	    err = tm1637_send_command(sc, 0x88|sc->tm1637_brightness);
+	    err = tm1637_send_command(sc, 0x88|sc->brightness);
 
 #ifdef DEBUG
-	    uprintf("is %d now\n", sc->tm1637_brightness);
+	    uprintf("is %d now\n", sc->brightness);
 #endif
 
 	}
 
 #ifdef DEBUG
 	else
-	    uprintf("setting to %d is delayed until the display is on\n", sc->tm1637_brightness);
+	    uprintf("setting to %d is delayed until the display is on\n", sc->brightness);
 #endif
 
     }
@@ -806,9 +805,9 @@ tm1637_display_off(struct tm1637_softc *sc)
     int err;
 
     // Do nothing is always off
-    if(sc->tm1637_on != 0)
+    if(sc->on != 0)
     {
-	sc->tm1637_on = 0;
+	sc->on = 0;
 	err = tm1637_send_command(sc, 0x80);
 
 #ifdef DEBUG
@@ -1064,9 +1063,9 @@ tm1637_setup_hinted_pins(struct tm1637_softc *sc)
     const char *busname, *devname;
     int err, numpins, sclnum, sdanum, unit;
 
-    devname = device_get_name(sc->tm1637_dev);
-    unit = device_get_unit(sc->tm1637_dev);
-    busdev = device_get_parent(sc->tm1637_dev);
+    devname = device_get_name(sc->dev);
+    unit = device_get_unit(sc->dev);
+    busdev = device_get_parent(sc->dev);
 
     /*
      * If there is not an "at" hint naming our actual parent, then we
@@ -1080,7 +1079,7 @@ tm1637_setup_hinted_pins(struct tm1637_softc *sc)
     }
 
     /* Make sure there were hints for at least two pins. */
-    numpins = gpiobus_get_npins(sc->tm1637_dev);
+    numpins = gpiobus_get_npins(sc->dev);
     if (numpins < TM1637_MIN_PINS) {
 
 #ifdef FDT
@@ -1092,7 +1091,7 @@ tm1637_setup_hinted_pins(struct tm1637_softc *sc)
 	    return (ENOENT);
 	}
 #endif
-	device_printf(sc->tm1637_dev, 
+	device_printf(sc->dev, 
 	    "invalid pins hint; it must contain at least %d pins\n",
 	    TM1637_MIN_PINS);
 	return (EINVAL);
@@ -1108,21 +1107,21 @@ tm1637_setup_hinted_pins(struct tm1637_softc *sc)
     if ((err = resource_int_value(devname, unit, "scl", &sclnum)) != 0)
 	sclnum = TM1637_SCL_IDX;
     else if (sclnum < 0 || sclnum >= numpins) {
-	device_printf(sc->tm1637_dev, "invalid scl hint %d\n", sclnum);
+	device_printf(sc->dev, "invalid scl hint %d\n", sclnum);
 	return (EINVAL);
     }
     if ((err = resource_int_value(devname, unit, "sda", &sdanum)) != 0)
 	sdanum = TM1637_SDA_IDX;
     else if (sdanum < 0 || sdanum >= numpins) {
-	device_printf(sc->tm1637_dev, "invalid sda hint %d\n", sdanum);
+	device_printf(sc->dev, "invalid sda hint %d\n", sdanum);
 	return (EINVAL);
     }
 
     /* Allocate gpiobus_pin structs for the pins we found above. */
-    if ((err = gpio_pin_get_by_child_index(sc->tm1637_dev, sclnum, &sc->tm1637_sclpin)) != 0)
+    if ((err = gpio_pin_get_by_child_index(sc->dev, sclnum, &sc->sclpin)) != 0)
 	return (err);
 
-    if ((err = gpio_pin_get_by_child_index(sc->tm1637_dev, sdanum, &sc->tm1637_sdapin)) != 0)
+    if ((err = gpio_pin_get_by_child_index(sc->dev, sdanum, &sc->sdapin)) != 0)
 	return (err);
 
     return (0);
@@ -1147,11 +1146,11 @@ static struct cdevsw tm1637_cdevsw = {
 };
 
 static int
-tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, struct thread *td)
+tm1637_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag, struct thread *td)
 {
     int error = 0;
 
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
 
     switch (cmd)
     {
@@ -1180,7 +1179,7 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 	    tm1637_set_brightness(sc, *(uint8_t*)data);
 	    break;
 	case TM1637IOC_SET_CLOCKPOINT:
-	    if(sc->tm1637_on != 0)
+	    if(sc->on != 0)
 	    {
 #ifdef DEBUG
 		uprintf("ioctl(set_clockpoint, %i)\n", *(uint8_t*)data);
@@ -1194,14 +1193,14 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 #ifdef DEBUG
 		uprintf("ioctl(set_rawmode, %i)\n", *(uint8_t*)data);
 #endif
-		sc->tm1637_raw_mode = *(uint8_t*)data;
+		sc->raw_mode = *(uint8_t*)data;
 	    }
 	    break;
 	case TM1637IOC_GET_RAWMODE:
 #ifdef DEBUG
-	    uprintf("ioctl(get_rawmode) -> %i\n", sc->tm1637_raw_mode);
+	    uprintf("ioctl(get_rawmode) -> %i\n", sc->raw_mode);
 #endif
-	    *(uint8_t *)data = sc->tm1637_raw_mode;
+	    *(uint8_t *)data = sc->raw_mode;
 	    break;
 	case TM1637IOC_SET_CLOCK:
 #ifdef DEBUG
@@ -1221,34 +1220,34 @@ tm1637_ioctl(struct cdev *tm1637_cdev, u_long cmd, caddr_t data, int fflag, stru
 }
 
 static int
-tm1637_open(struct cdev *tm1637_cdev, int oflags __unused, int devtype __unused,
+tm1637_open(struct cdev *cdev, int oflags __unused, int devtype __unused,
     struct thread *td __unused)
 {
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
 
     TM1637_LOCK(sc);
-    if (sc->tm1637_inuse) {
+    if (sc->inuse) {
         TM1637_UNLOCK(sc);
         return (EBUSY);
     }
     /* move to init */
-    sc->tm1637_inuse = true;
+    sc->inuse = true;
     TM1637_UNLOCK(sc);
 
 #ifdef DEBUG
-    uprintf("Opened device \"%s\" successfully.\n", tm1637_cdevsw.d_name);
+    uprintf("Opened device \"%s\" successfully.\n", cdevsw.d_name);
 #endif
 
     return (0);
 }
 
 static int
-tm1637_close(struct cdev *tm1637_cdev __unused, int fflag __unused, int devtype __unused,
+tm1637_close(struct cdev *cdev __unused, int fflag __unused, int devtype __unused,
     struct thread *td __unused)
 {
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
 
-    sc->tm1637_inuse = false;
+    sc->inuse = false;
 
 #ifdef DEBUG
     uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);
@@ -1258,11 +1257,11 @@ tm1637_close(struct cdev *tm1637_cdev __unused, int fflag __unused, int devtype 
 }
 
 static int
-tm1637_read(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
+tm1637_read(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 {
     int error;
     size_t amount;
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1; // Stored here on tm1637_attach()
+    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
 
     size_t text_len = sc->tm1637_buf->len + 1;
     amount = MIN(uio->uio_resid, 
@@ -1275,13 +1274,13 @@ tm1637_read(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
 }
 
 static int
-tm1637_write(struct cdev *tm1637_cdev, struct uio *uio, int ioflag __unused)
+tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 {
     int error;
 
-    struct tm1637_softc *sc = tm1637_cdev->si_drv1;
+    struct tm1637_softc *sc = cdev->si_drv1;
 
-    if(sc->tm1637_raw_mode > 0)
+    if(sc->raw_mode > 0)
     {
 	error = tm1637_write_segs(sc, uio);
 	if (error == 0)
@@ -1334,14 +1333,14 @@ tm1637_detach(device_t dev)
 
     tm1637_display_off(sc);
 
-    if (sc->tm1637_cdev != NULL)
-	destroy_dev(sc->tm1637_cdev);
+    if (sc->cdev != NULL)
+	destroy_dev(sc->cdev);
 
-    if (sc->tm1637_sclpin != NULL)
-	gpio_pin_release(sc->tm1637_sclpin);
+    if (sc->sclpin != NULL)
+	gpio_pin_release(sc->sclpin);
 
-    if (sc->tm1637_sdapin != NULL)
-	gpio_pin_release(sc->tm1637_sdapin);
+    if (sc->sdapin != NULL)
+	gpio_pin_release(sc->sdapin);
 
     free(sc->tm1637_buf, M_TM1637BUF);
     TM1637_LOCK_DESTROY(sc);
@@ -1361,8 +1360,8 @@ tm1637_attach(device_t dev)
     ctx = device_get_sysctl_ctx(dev);
     tree = device_get_sysctl_tree(dev);
 
-    sc->tm1637_dev = dev;
-    sc->tm1637_node = ofw_bus_get_node(dev);
+    sc->dev = dev;
+    sc->node = ofw_bus_get_node(dev);
 
     /* Acquire our gpio pins. */
     err = tm1637_setup_hinted_pins(sc);
@@ -1373,18 +1372,18 @@ tm1637_attach(device_t dev)
 #endif
 
     if (err != 0) {
-	device_printf(sc->tm1637_dev, "no pins configured\n");
+	device_printf(sc->dev, "no pins configured\n");
 	return (ENXIO);
     }
 
     /* Say what we came up with for pin config. */
     device_printf(dev, "SCL pin: %s:%d, SDA pin: %s:%d\n",
-	device_get_nameunit(GPIO_GET_BUS(sc->tm1637_sclpin->dev)), sc->tm1637_sclpin->pin,
-	device_get_nameunit(GPIO_GET_BUS(sc->tm1637_sdapin->dev)), sc->tm1637_sdapin->pin);
+	device_get_nameunit(GPIO_GET_BUS(sc->sclpin->dev)), sc->sclpin->pin,
+	device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin);
 
     /* Create the tm1637 cdev. */
     err = make_dev_p(MAKEDEV_CHECKNAME | MAKEDEV_WAITOK,
-	&sc->tm1637_cdev,
+	&sc->cdev,
 	&tm1637_cdevsw,
 	0,
 	UID_ROOT,
@@ -1398,23 +1397,23 @@ tm1637_attach(device_t dev)
 	return (err);
     }
 
-    sc->tm1637_cdev->si_drv1 = sc;
+    sc->cdev->si_drv1 = sc;
     tm1637_set_speed(sc, TM1637_BUSFREQ);
 
     /* Set properties */
     uint32_t brightness;
-    if (OF_getencprop(sc->tm1637_node, "default-brightness-level", &brightness, sizeof(uint32_t)) == sizeof(uint32_t))
+    if (OF_getencprop(sc->node, "default-brightness-level", &brightness, sizeof(uint32_t)) == sizeof(uint32_t))
     {
 	if (brightness <= 7)
-	    sc->tm1637_brightness = brightness;
+	    sc->brightness = brightness;
 	else
-	    sc->tm1637_brightness = TM1637_BRIGHT_DARKEST;
+	    sc->brightness = TM1637_BRIGHT_DARKEST;
     }
 
-    if (OF_hasprop(sc->tm1637_node, "raw-mode") == 1)
-	sc->tm1637_raw_mode = 1;
+    if (OF_hasprop(sc->node, "raw-mode") == 1)
+	sc->raw_mode = 1;
     else
-	sc->tm1637_raw_mode = 0;
+	sc->raw_mode = 0;
 
     /* Create sysctl variables and set their handlers */
     SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
