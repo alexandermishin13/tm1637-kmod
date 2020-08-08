@@ -70,6 +70,11 @@
 #define TM1637_UNLOCK(sc)	\
     mtx_unlock(&(sc)->lock)
 
+#define	GPIOBB_GETSDA(sc)	(gpiobb_getsda(sc))
+#define	GPIOBB_SETSDA(sc, x)	(gpiobb_setsda(sc, x))
+#define	GPIOBB_GETSCL(sc)	(gpiobb_getscl(sc))
+#define	GPIOBB_SETSCL(sc, x)	(gpiobb_setscl(sc, x))
+
 #define GPIOBB_SET(sc, ctrl, val) do {			\
 	tm1637_setscl(sc, ctrl);			\
 	gpio_pin_set_active(sc->sdapin, val);	\
@@ -101,6 +106,11 @@ struct tm1637_softc {
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
+
+static void gpiobb_setsda(struct tm1637_softc*, int);
+static void gpiobb_setscl(struct tm1637_softc*, int);
+static bool gpiobb_getsda(struct tm1637_softc*);
+static bool gpiobb_getscl(struct tm1637_softc*);
 
 static void tm1637_set_speed(struct tm1637_softc*, u_int);
 static void tm1637_setscl(struct tm1637_softc*, bool);
@@ -286,6 +296,111 @@ tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
 }
 
 static void
+gpiobb_setsda(struct tm1637_softc *sc, int val)
+{
+	int err;
+
+	/*
+	 * Some controllers cannot set an output value while a pin is in input
+	 * mode; in that case we set the pin again after changing mode.
+	 */
+	err = gpio_pin_set_active(sc->sdapin, val);
+	gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
+	if (err != 0)
+		gpio_pin_set_active(sc->sdapin, val);
+}
+
+static void
+gpiobb_setscl(struct tm1637_softc *sc, int val)
+{
+	gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
+	gpio_pin_set_active(sc->sclpin, val);
+}
+
+static bool
+gpiobb_getscl(struct tm1637_softc *sc)
+{
+	bool val;
+
+	gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
+	gpio_pin_is_active(sc->sclpin, &val);
+	return (val);
+}
+
+static bool
+gpiobb_getsda(struct tm1637_softc *sc)
+{
+	bool val;
+
+	gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
+	gpio_pin_is_active(sc->sdapin, &val);
+	return (val);
+}
+
+static int
+gpiobb_waitforscl(struct tm1637_softc *sc)
+{
+	sbintime_t fast_timeout;
+	sbintime_t now, timeout;
+
+	/* Spin for up to 1 ms, then switch to pause. */
+	now = sbinuptime();
+	fast_timeout = now + SBT_1MS;
+	timeout = now + sc->scl_low_timeout * SBT_1US;
+	do {
+		if (GPIOBB_GETSCL(sc))
+			return (0);
+		now = sbinuptime();
+	} while (now < fast_timeout);
+	do {
+		pause_sbt("gpiobb-scl-low", SBT_1MS, C_PREL(8), 0);
+		if (GPIOBB_GETSCL(sc))
+			return (0);
+		now = sbinuptime();
+	} while (now < timeout);
+
+	return (EIO);
+}
+
+/* Start the high phase of the clock. */
+static int
+gpiobb_clockin(struct tm1637_softc *sc, bool sda)
+{
+
+	/*
+	 * Precondition: SCL is low.
+	 * Action:
+	 * - set SDA to the value;
+	 * - release SCL and wait until it's high.
+	 * The caller is responsible for keeping SCL high for udelay.
+	 *
+	 * There should be a data set-up time, 250 ns minimum, between setting
+	 * SDA and raising SCL.  It's expected that the I/O access latency will
+	 * naturally provide that delay.
+	 */
+	GPIOBB_SETSDA(sc, sda);
+	GPIOBB_SETSCL(sc, true);
+	return (gpiobb_waitforscl(sc));
+}
+
+static int
+gpiobb_stop(struct tm1637_softc *sc)
+{
+	int err = 0;
+
+	/*
+	 * Stop: SDA goes from low to high in the middle of the SCL high phase.
+	 */
+	err = gpiobb_clockin(sc, false);
+	if (err != 0)
+		return (err);
+	DELAY((sc->udelay + 1) / 2);
+	GPIOBB_SETSDA(sc, true);
+	DELAY((sc->udelay + 1) / 2);
+	return (err);
+}
+
+static void
 tm1637_setscl(struct tm1637_softc *sc, bool val)
 {
     sbintime_t now, end;
@@ -374,20 +489,19 @@ tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 static int
 tm1637_gpio_stop(struct tm1637_softc *sc)
 {
-    bool scl_val;
+    int err = 0;
 
-    GPIOBB_SET(sc, false, false);
-    GPIOBB_SET(sc, true, false);
-    GPIOBB_SET(sc, true, true);
-    
-    /* SCL must be high now. */
-    gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
-    gpio_pin_is_active(sc->sclpin, &scl_val);
-    gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT);
-    if (!scl_val)
-	return (EIO);
+    /*
+     * Stop: SDA goes from low to high in the middle of the SCL high phase.
+     */
+    err = gpiobb_clockin(sc, false);
+    if (err != 0)
+	return (err);
+    DELAY((sc->udelay + 1) / 2);
+    GPIOBB_SETSDA(sc, true);
+    DELAY((sc->udelay + 1) / 2);
 
-    return (0);
+    return (err);
 }
 
 static int
@@ -433,7 +547,8 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 
     tm1637_gpio_start(sc);
     err = tm1637_gpio_sendbyte(sc, cmd);
-    tm1637_gpio_stop(sc);
+//    tm1637_gpio_stop(sc);
+    gpiobb_stop(sc);
 
     if (err)
     {
@@ -441,7 +556,8 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 
 	tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, cmd);
-	tm1637_gpio_stop(sc);
+//	tm1637_gpio_stop(sc);
+	gpiobb_stop(sc);
 
 	if (err)
 	    device_printf(sc->dev, "No ack when resent command 0x%02x, canceled\n", cmd);
