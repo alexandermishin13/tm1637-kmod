@@ -183,7 +183,7 @@ There are examples for Perl and Python in "examples/".
 
 ## Bugs
 
-On `Orange Pi PC` do not outputs first segments of each digit positions.
+Do not know yet.
 
 ## To do
 

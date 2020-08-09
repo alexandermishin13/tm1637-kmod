@@ -75,14 +75,6 @@
 #define	GPIOBB_GETSCL(sc)	(gpiobb_getscl(sc))
 #define	GPIOBB_SETSCL(sc, x)	(gpiobb_setscl(sc, x))
 
-/*
-#define GPIOBB_SET(sc, ctrl, val) do {			\
-	tm1637_setscl(sc, ctrl);			\
-	gpio_pin_set_active(sc->sdapin, val);	\
-	DELAY(sc->udelay);				\
-	} while (0)
-*/
-
 static const u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 
 struct tm1637_softc {
@@ -116,9 +108,6 @@ static bool gpiobb_getscl(struct tm1637_softc*);
 static int gpiobb_getack(struct tm1637_softc*);
 
 static void tm1637_set_speed(struct tm1637_softc*, u_int);
-static void tm1637_setscl(struct tm1637_softc*, bool);
-//static int tm1637_gpio_start(struct tm1637_softc*);
-//static int tm1637_gpio_stop(struct tm1637_softc*);
 
 static int tm1637_read(struct cdev*, struct uio*, int ioflag);
 static int tm1637_write(struct cdev*, struct uio*, int ioflag);
@@ -474,65 +463,6 @@ gpiobb_stop(struct tm1637_softc *sc)
 	return (err);
 }
 
-static void
-tm1637_setscl(struct tm1637_softc *sc, bool val)
-{
-    sbintime_t now, end;
-    int fast_timeout;
-    bool scl_val;
-
-    gpio_pin_set_active(sc->sclpin, val);
-    DELAY(sc->udelay);
-
-    /* Pulling low cannot fail. */
-    if (!val)
-	return;
-
-    /* Use DELAY for up to 1 ms, then switch to pause. */
-    end = sbinuptime() + sc->scl_low_timeout * SBT_1US;
-    fast_timeout = MIN(sc->scl_low_timeout, 1000);
-    while (fast_timeout > 0) {
-	gpio_pin_is_active(sc->sdapin, &scl_val);
-	if (scl_val)
-	    return;
-	gpio_pin_set_active(sc->sclpin, true);	/* redundant ? */
-	DELAY(sc->udelay);
-	fast_timeout -= sc->udelay;
-    }
-
-    gpio_pin_is_active(sc->sclpin, &scl_val);
-    while (!scl_val) {
-	now = sbinuptime();
-	if (now >= end)
-	    break;
-	pause_sbt("tm1637-scl-low", SBT_1MS, C_PREL(8), 0);
-    }
-}
-
-/*
-static int
-tm1637_gpio_start(struct tm1637_softc *sc)
-{
-    bool scl_val;
-
-    GPIOBB_SET(sc, true, true);
-*/
-
-    /* SCL must be high now. */
-/*
-    gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
-    gpio_pin_is_active(sc->sclpin, &scl_val);
-    gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT);
-    if (!scl_val)
-	return (EIO);
-
-    GPIOBB_SET(sc, true, false);
-    GPIOBB_SET(sc, false, false);
-
-    return (0);
-}
-*/
-
 /*
  * Send a byte of information w/ ack checking
  */
@@ -591,7 +521,6 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
     int err;
 
     gpiobb_start(sc);
-    //tm1637_gpio_start(sc);
     err = tm1637_gpio_sendbyte(sc, cmd);
     gpiobb_stop(sc);
 
@@ -600,7 +529,6 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 	device_printf(sc->dev, "No ack when sent command 0x%02x, resending\n", cmd);
 
 	gpiobb_start(sc);
-	//tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, cmd);
 	gpiobb_stop(sc);
 
@@ -623,17 +551,16 @@ tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
     u_char data = sc->tm1637_digits[pos];
 
     gpiobb_start(sc);
-    //tm1637_gpio_start(sc);
     // Send address
     err = tm1637_gpio_sendbyte(sc, addr);
     if (err)
     {
 	// A stop bit needed before a retry
-//	gpiobb_stop(sc);
+	gpiobb_stop(sc);
 
 	device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
 
-//	tm1637_gpio_start(sc);
+	gpiobb_start(sc);
 	err = tm1637_gpio_sendbyte(sc, addr);
 	if (err)
 	{
@@ -681,7 +608,6 @@ tm1637_send_data(struct tm1637_softc *sc, size_t *pos, size_t last)
     u_char addr = TM1637_START_ADDRESS + *pos;
 
     gpiobb_start(sc);
-    //tm1637_gpio_start(sc);
     // Send address
     err = tm1637_gpio_sendbyte(sc, addr);
     if (err)
@@ -692,7 +618,6 @@ tm1637_send_data(struct tm1637_softc *sc, size_t *pos, size_t last)
 	device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
 
 	gpiobb_start(sc);
-	//tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, addr);
 	if (err)
 	{
