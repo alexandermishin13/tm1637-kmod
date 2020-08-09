@@ -45,7 +45,7 @@
 #include <dev/gpio/gpiobusvar.h>
 #include <dev/fdt/fdt_pinctrl.h>
 
-#include "tm1637_kmod.h"
+#include "include/tm1637_kmod.h"
 
 #define TM1637_CDEV_NAME	"tm1637"
 #define TM1637_SCL_PROPERTY	"scl-gpios"
@@ -111,12 +111,12 @@ static void gpiobb_setsda(struct tm1637_softc*, int);
 static void gpiobb_setscl(struct tm1637_softc*, int);
 static bool gpiobb_getsda(struct tm1637_softc*);
 static bool gpiobb_getscl(struct tm1637_softc*);
+static int gpiobb_getack(struct tm1637_softc*);
 
 static void tm1637_set_speed(struct tm1637_softc*, u_int);
 static void tm1637_setscl(struct tm1637_softc*, bool);
 static int tm1637_gpio_start(struct tm1637_softc*);
-static int tm1637_gpio_stop(struct tm1637_softc*);
-static int tm1637_gpio_ack(struct tm1637_softc*, int timeout);
+//static int tm1637_gpio_stop(struct tm1637_softc*);
 
 static int tm1637_read(struct cdev*, struct uio*, int ioflag);
 static int tm1637_write(struct cdev*, struct uio*, int ioflag);
@@ -383,6 +383,38 @@ gpiobb_clockin(struct tm1637_softc *sc, bool sda)
 	return (gpiobb_waitforscl(sc));
 }
 
+/*
+ * End the high phase of the clock and wait out the low phase
+ * as nothing interesting happens during it anyway.
+ */
+static void
+gpiobb_clockout(struct tm1637_softc *sc)
+{
+	/*
+	 * Precondition: SCL is high.
+	 * Action:
+	 * - pull SCL low and hold for udelay.
+	 */
+	GPIOBB_SETSCL(sc, false);
+	DELAY(sc->udelay);
+}
+
+static int
+gpiobb_sendbit(struct tm1637_softc *sc, bool bit)
+{
+	int err;
+
+	err = gpiobb_clockin(sc, bit);
+	if (err != 0)
+		return (err);
+	DELAY(sc->udelay);
+	gpiobb_clockout(sc);
+	return (0);
+}
+
+/*
+ * Stop command or data transmission
+ */
 static int
 gpiobb_stop(struct tm1637_softc *sc)
 {
@@ -464,74 +496,44 @@ tm1637_gpio_start(struct tm1637_softc *sc)
 static int
 tm1637_gpio_sendbyte(struct tm1637_softc *sc, u_char data)
 {
-    int i;
-    bool data_bit;
+    int err, i;
 
     // LSB first
     for(i=0; i<=7; i++)
     {
-	data_bit = (bool)(data&(1<<i));
-
-	GPIOBB_SET(sc, false, data_bit);
-	GPIOBB_SET(sc, true, data_bit);
-	GPIOBB_SET(sc, false, data_bit);
+	err = gpiobb_sendbit(sc, (data & (1 << i)) != 0);
+	if (err != 0)
+	    return (err);
     }
 
-    if (tm1637_gpio_ack(sc, TM1637_ACK_TIMEOUT))
+    if (gpiobb_getack(sc))
 	return EIO;
 
     return 0;
 }
 
-/*
- * Stop command or data transmission
- */
 static int
-tm1637_gpio_stop(struct tm1637_softc *sc)
+gpiobb_getack(struct tm1637_softc *sc)
 {
-    int err = 0;
+    int noack, err;
+    int t;
 
-    /*
-     * Stop: SDA goes from low to high in the middle of the SCL high phase.
-     */
-    err = gpiobb_clockin(sc, false);
-    if (err != 0)
+    /* Release SDA so that the slave can drive it. */
+    err = gpiobb_clockin(sc, true);
+    if (err != 0) {
 	return (err);
-    DELAY((sc->udelay + 1) / 2);
-    GPIOBB_SETSDA(sc, true);
-    DELAY((sc->udelay + 1) / 2);
+    }
 
-    return (err);
-}
-
-static int
-tm1637_gpio_ack(struct tm1637_softc *sc, int timeout)
-{
-    bool scl_val;
-    bool noack;
-    int k = 0;
-
-    GPIOBB_SET(sc, false, true);
-    GPIOBB_SET(sc, true, true);
-
-    /* SCL must be high now. */
-    gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
-    gpio_pin_is_active(sc->sclpin, &scl_val);
-    gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT);
-    if (!scl_val)
-	return (EIO);
-
-    gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
-    do {
-	gpio_pin_is_active(sc->sdapin, &noack);
+    /* Sample SDA until ACK (low) or udelay runs out. */
+    for (t = 0; t < sc->udelay; t++) {
+	noack = GPIOBB_GETSDA(sc);
 	if (!noack)
 	    break;
 	DELAY(1);
-	k++;
-    } while (k < timeout);
-    gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT);
+    }
 
-    GPIOBB_SET(sc, false, true);
+    DELAY(sc->udelay - t);
+    gpiobb_clockout(sc);
 
     return (noack ? EIO : 0);
 }
@@ -547,7 +549,6 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 
     tm1637_gpio_start(sc);
     err = tm1637_gpio_sendbyte(sc, cmd);
-//    tm1637_gpio_stop(sc);
     gpiobb_stop(sc);
 
     if (err)
@@ -556,7 +557,6 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 
 	tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, cmd);
-//	tm1637_gpio_stop(sc);
 	gpiobb_stop(sc);
 
 	if (err)
@@ -583,16 +583,16 @@ tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
     if (err)
     {
 	// A stop bit needed before a retry
-	tm1637_gpio_stop(sc);
+//	gpiobb_stop(sc);
 
 	device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
 
-	tm1637_gpio_start(sc);
+//	tm1637_gpio_start(sc);
 	err = tm1637_gpio_sendbyte(sc, addr);
 	if (err)
 	{
 	    // Give up this time and a stop bit
-	    tm1637_gpio_stop(sc);
+	    gpiobb_stop(sc);
 
 	    device_printf(sc->dev, "No ack when resent address 0x%02x, canceled\n", addr);
 
@@ -606,12 +606,12 @@ tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
     {
 	// Resend data to the same address with no stop bit
 	err = tm1637_gpio_sendbyte(sc, data);
-	tm1637_gpio_stop(sc);
+	gpiobb_stop(sc);
 	device_printf(sc->dev, "No ack when sent data 0x%02x twice, canceled\n", data);
 
 	return err;
     }
-    tm1637_gpio_stop(sc);
+    gpiobb_stop(sc);
 
 #ifdef DEBUG
     uprintf("display: ");
@@ -640,7 +640,7 @@ tm1637_send_data(struct tm1637_softc *sc, size_t *pos, size_t last)
     if (err)
     {
 	// A stop bit needed before a retry
-	tm1637_gpio_stop(sc);
+	gpiobb_stop(sc);
 
 	device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
 
@@ -649,7 +649,7 @@ tm1637_send_data(struct tm1637_softc *sc, size_t *pos, size_t last)
 	if (err)
 	{
 	    // Give up this time and a stop bit
-	    tm1637_gpio_stop(sc);
+	    gpiobb_stop(sc);
 
 	    device_printf(sc->dev, "No ack when resent address 0x%02x, canceled\n", addr);
 
@@ -676,7 +676,7 @@ tm1637_send_data(struct tm1637_softc *sc, size_t *pos, size_t last)
 
 	++*pos;
     }
-    tm1637_gpio_stop(sc);
+    gpiobb_stop(sc);
 
 #ifdef DEBUG
     uprintf("\n");
@@ -1537,11 +1537,11 @@ tm1637_attach(device_t dev)
 	0, "Signal change delay controlled by bus frequency, microseconds");
 
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	"brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	"brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,
 	&tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
 
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	"on", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE, sc, 0,
+	"on", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,
 	&tm1637_set_on_sysctl, "CU", "display is on or off");
 
     SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,

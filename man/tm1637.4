@@ -71,9 +71,10 @@ dev.tm1637.%parent:
 .It Va dev.tm1637.<unit>.on
 The mode of the display, 0=off, 1=on. In off mode display is blank and data
 being written is not realy sent to it. But last piece of data will be sent
-to the display when it is turned on.
+to the display when it is turned on. Any user can change this value.
 .It Va dev.tm1637.<unit>.brightness
-The display brightness level, 0=darkest, 7=brightest
+The display brightness level, 0=darkest, 7=brightest. Any user can change this
+value.
 .It Va dev.tm1637.<unit>.raw_mode
 Data input mode, 0=human readable, 1=raw. In the human readable input mode
 the device will interpret the data as a string up to 5 characters long ended up

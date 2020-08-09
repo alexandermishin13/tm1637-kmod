@@ -71,9 +71,10 @@ Now the display can be easy used from PHP or Python or anything alse.
 ## Usage
 
 You can change by write to a kernel variable:
-* `brightness` 0...7 digit, 0 is a darkest one.
+* `brightness` 0...7 digit, 0 is a darkest one. Can be set by any user;
+* `on` on ot off the display (brightness level keeps its value). Can be set by
+any user;
 * `raw_mode` 0 or 1. 0 is a string mode, 1 is a bytes of segments to light mode.
-* `on` on ot off the display (brightness level keeps its level).
 
 ```
 sysctl dev.tm1637.0.brightness=7
