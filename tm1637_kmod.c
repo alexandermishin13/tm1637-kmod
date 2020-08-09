@@ -55,9 +55,6 @@
 #define TM1637_MIN_PINS		2
 #define TM1637_BUSFREQ		450000
 
-/* Based on the SMBus specification. */
-#define	DEFAULT_SCL_LOW_TIMEOUT	(25 * 1000)
-
 #define SIGN_MINUS		0x40
 #define SIGN_EMPTY		0x00
 
@@ -289,15 +286,15 @@ tm1637_raw_mode_sysctl(SYSCTL_HANDLER_ARGS)
 static void
 gpiobb_setsda(struct tm1637_softc *sc, bool val)
 {
-	//int err;
+//	int err;
 
 	/*
 	 * Some controllers cannot set an output value while a pin is in input
 	 * mode; in that case we set the pin again after changing mode.
 	 */
-	//err = gpio_pin_set_active(sc->sdapin, val);
+//	err = gpio_pin_set_active(sc->sdapin, val);
 	gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
-	//if (err != 0)
+//	if (err != 0)
 		gpio_pin_set_active(sc->sdapin, val);
 }
 
@@ -309,22 +306,22 @@ gpiobb_setscl(struct tm1637_softc *sc, bool val)
 }
 
 static bool
-gpiobb_getscl(struct tm1637_softc *sc)
-{
-	bool val;
-
-	gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
-	gpio_pin_is_active(sc->sclpin, &val);
-	return (val);
-}
-
-static bool
 gpiobb_getsda(struct tm1637_softc *sc)
 {
 	bool val;
 
 	gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
 	gpio_pin_is_active(sc->sdapin, &val);
+	return (val);
+}
+
+static bool
+gpiobb_getscl(struct tm1637_softc *sc)
+{
+	bool val;
+
+	gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
+	gpio_pin_is_active(sc->sclpin, &val);
 	return (val);
 }
 
@@ -432,13 +429,13 @@ gpiobb_start(struct tm1637_softc *sc)
 	gpiobb_clockout(sc);
 
 	/* send address */
-//	error = iicbb_sendbyte(dev, slave);
+//	error = gpiobb_sendbyte(sc, cmd);
 
 	/* check for ack */
 //	if (error == 0)
-//		error = iicbb_getack(dev);
+//		error = gpiobb_getack(sc);
 //	if (error != 0)
-//		(void)iicbb_stop(dev);
+//		(void)gpiobb_stop(sc);
 //	return (error);
 	return (0);
 }
@@ -985,11 +982,6 @@ tm1637_write_segs(struct tm1637_softc *sc, struct uio *uio)
 	else
 	    return EINVAL;
     }
-
-/*
-    if (uio->uio_offset < 0 && uio->uio_offset >= TM1637_MAX_COLOM)
-	return (error);
-*/
 
     // Copy the string in from user memory to kernel memory
     amount = MIN(uio->uio_resid, (TM1637_BUFFERSIZE - uio->uio_offset));
