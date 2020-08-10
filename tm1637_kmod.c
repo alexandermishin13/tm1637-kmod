@@ -45,7 +45,7 @@
 #include <dev/gpio/gpiobusvar.h>
 #include <dev/fdt/fdt_pinctrl.h>
 
-#include "include/tm1637_kmod.h"
+#include "include/dev/tm1637/tm1637.h"
 
 #define TM1637_CDEV_NAME	"tm1637"
 #define TM1637_SCL_PROPERTY	"scl-gpios"
@@ -54,6 +54,10 @@
 #define TM1637_SDA_IDX		1
 #define TM1637_MIN_PINS		2
 #define TM1637_BUSFREQ		450000
+
+#define TM1637_ADDRESS_AUTO	0x40
+#define TM1637_ADDRESS_FIXED	0x44
+#define TM1637_START_ADDRESS	0xc0
 
 #define SIGN_MINUS		0x40
 #define SIGN_EMPTY		0x00
@@ -71,6 +75,8 @@
 #define	GPIOBB_SETSDA(sc, x)	(gpiobb_setsda(sc, x))
 #define	GPIOBB_GETSCL(sc)	(gpiobb_getscl(sc))
 #define	GPIOBB_SETSCL(sc, x)	(gpiobb_setscl(sc, x))
+
+MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 module");
 
 static const u_char char_code[] = { 0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f };
 

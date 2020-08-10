@@ -29,12 +29,6 @@
 #ifndef _TM1637_KMOD_H_
 #define _TM1637_KMOD_H_
 
-#define TM1637_MODE_PROPERTY	"mode"
-
-#define TM1637_ADDRESS_AUTO	0x40
-#define TM1637_ADDRESS_FIXED	0x44
-#define TM1637_START_ADDRESS	0xc0
-
 #define TM1637_BRIGHT_DARKEST	0
 #define TM1637_BRIGHT_DARK	1
 #define TM1637_BRIGHT_TYPICAL	2
@@ -64,7 +58,5 @@ struct s_message {
     int offset;
     int len;
 };
-
-MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 module");
 
 #endif /* _TM1637_KMOD_H_ */

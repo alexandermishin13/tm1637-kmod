@@ -1,0 +1,8 @@
+_SKIP_BUILD=true
+INCS=dev/tm1637/tm1637.h
+#INCSNAME=tm1637.h
+INCSDIR=${INCLUDEDIR}/dev/tm1637
+DIRS=DEV_TM1637
+DEV_TM1637=${INCLUDEDIR}/dev/tm1637
+
+.include <bsd.prog.mk>
