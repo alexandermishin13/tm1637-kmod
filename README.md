@@ -88,9 +88,10 @@ minus and hash signs, spaces and colon followed by "\n". The device ignore
 a file position pointer - You do not need to use a `seek()`, but You need to
 write a whole string in one write operation.
 * A `bytes of segments mode` in which you write up to four bytes of digit
-segments to a device. You should also always use `seek()` for the starting
+segments to a device. Also You should always use `seek()` for the starting
 position from which you want to start to write.
-No matter what device mode you select, the driver will not re-send unchenged
+
+No matter what device mode you select, the driver will avoid sending unchanged
 leading and trailing bytes to the display.
 
 ### String mode
@@ -125,7 +126,7 @@ bytes.
 ## ioctl() functions
 
 For programming languages which have an ability to use of `ioctl()` calls.
-`ioctl()` functions defined as:
+`ioctl()` functions defined in **/usr/include/dev/tm1637/tm1637.h**:
 ```
 struct tm1637_clock_t {
     int tm_min;
@@ -139,7 +140,7 @@ struct tm1637_clock_t {
 #define TM1637IOC_SET_BRIGHTNESS	_IOW('T', 11, uint8_t)
 #define TM1637IOC_SET_CLOCKPOINT	_IOW('T', 12, uint8_t)
 #define TM1637IOC_SET_RAWMODE		_IOW('T', 13, uint8_t)
-#define TM1637IOC_SET_SET_CLOCK		_IOW('T', 14 struct tm1637_clock_t)
+#define TM1637IOC_SET_SET_CLOCK		_IOW('T', 14, struct tm1637_clock_t)
 #define TM1637IOC_GET_RAWMODE		_IOR('T', 23, uint8_t)
 ```
 You could `clear`, `off` and `on` the display just simple as that.

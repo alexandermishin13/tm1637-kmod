@@ -1,3 +1,5 @@
+# $FreeBSD$
+
 _SKIP_BUILD=true
 INCS=dev/tm1637/tm1637.h
 #INCSNAME=tm1637.h
