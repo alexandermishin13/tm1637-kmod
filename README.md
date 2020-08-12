@@ -186,13 +186,6 @@ There are examples for Perl and Python in "examples/".
 
 Do not know yet.
 
-## To do
-
-* Check if I could make a `\n` at the end in string mode optional.
-* fdt_pinctrl_configure does not work. For now set pins flag forced
-befor every start of data transfer..
-
 ## Status
 
-Current status of the driver is "alpha".
 The driver work tested on Orange Pi PC and Raspberry Pi 2.
