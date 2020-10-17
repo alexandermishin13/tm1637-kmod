@@ -337,9 +337,9 @@ gpiobb_setscl(device_t dev, int val)
 {
 	struct tm1637_softc *sc = device_get_softc(dev);
 
-//	gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
-//	gpio_pin_set_active(sc->sclpin, val);
-
+	gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
+	gpio_pin_set_active(sc->sclpin, val);
+/*
 	if (val) {
 		gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
 	} else {
@@ -347,7 +347,7 @@ gpiobb_setscl(device_t dev, int val)
 		    GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
 		gpio_pin_set_active(sc->sclpin, 0);
 	}
-
+*/
 }
 
 static int
@@ -1286,13 +1286,13 @@ static d_ioctl_t     tm1637_ioctl;
 
 /* Character device entry points */
 static struct cdevsw tm1637_cdevsw = {
-    .d_version = D_VERSION,
-    .d_open = tm1637_open,
-    .d_close = tm1637_close,
-    .d_read = tm1637_read,
-    .d_write = tm1637_write,
-    .d_ioctl = tm1637_ioctl,
-    .d_name = TM1637_CDEV_NAME,
+	.d_version = D_VERSION,
+	.d_open = tm1637_open,
+	.d_close = tm1637_close,
+	.d_read = tm1637_read,
+	.d_write = tm1637_write,
+	.d_ioctl = tm1637_ioctl,
+	.d_name = TM1637_CDEV_NAME,
 };
 
 static int
@@ -1526,7 +1526,7 @@ tm1637_attach(device_t dev)
 		return (ENXIO);
 	}
 
-    /* Say what we came up with for pin config. */
+	/* Say what we came up with for pin config. */
 	device_printf(dev, "SCL pin: %s:%d, SDA pin: %s:%d\n",
 	    device_get_nameunit(GPIO_GET_BUS(sc->sclpin->dev)), sc->sclpin->pin,
 	    device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin);
