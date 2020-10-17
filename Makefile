@@ -1,3 +1,5 @@
+# $FreeBSD$
+
 .PATH:	${SRCTOP}/sys/dev/gpio/
 
 KMOD=tm1637
