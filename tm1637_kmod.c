@@ -460,7 +460,6 @@ static int
 gpiobb_start(device_t dev)
 {
 	struct tm1637_softc *sc = device_get_softc(dev);
-//	int error;
 
 	I2C_DEBUG(printf("<<"));
 
@@ -488,15 +487,6 @@ gpiobb_start(device_t dev)
 	/* Pull SCL low to keep the bus reserved. */
 	gpiobb_clockout(dev);
 
-	/* send address */
-//	error = gpiobb_sendbyte(dev, cmd);
-
-	/* check for ack */
-//	if (error == 0)
-//		error = gpiobb_getack(dev);
-//	if (error != 0)
-//		(void)gpiobb_stop(dev);
-//	return (error);
 	return (0);
 }
 
@@ -569,12 +559,8 @@ tm1637_gpio_sendbyte(device_t dev, uint8_t data)
 			return (err);
 		}
 	}
-
-	if (gpiobb_getack(dev))
-		return EIO;
-
 	I2C_DEBUG(printf("w%02x", data));
-	return 0;
+	return (gpiobb_getack(dev));
 }
 
 /*
@@ -582,27 +568,27 @@ tm1637_gpio_sendbyte(device_t dev, uint8_t data)
  * Returns zero on success
  */
 static int
-tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
+tm1637_send_command(device_t dev, uint8_t cmd)
 {
-    int err;
+	int err;
 
-    gpiobb_start(sc->dev);
-    err = tm1637_gpio_sendbyte(sc->dev, cmd);
-    gpiobb_stop(sc->dev);
-
-    if (err)
-    {
-	device_printf(sc->dev, "No ack when sent command 0x%02x, resending\n", cmd);
-
-	gpiobb_start(sc->dev);
-	err = tm1637_gpio_sendbyte(sc->dev, cmd);
-	gpiobb_stop(sc->dev);
+	gpiobb_start(dev);
+	err = tm1637_gpio_sendbyte(dev, cmd);
+	gpiobb_stop(dev);
 
 	if (err)
-	    device_printf(sc->dev, "No ack when resent command 0x%02x, canceled\n", cmd);
-    }
+	{
+		device_printf(dev, "No ack when sent command 0x%02x, resending\n", cmd);
 
-    return err;
+		gpiobb_start(dev);
+		err = tm1637_gpio_sendbyte(dev, cmd);
+		gpiobb_stop(dev);
+
+		if (err)
+			device_printf(dev, "No ack when resent command 0x%02x, canceled\n", cmd);
+	}
+
+	return err;
 }
 
 /*
@@ -612,54 +598,50 @@ tm1637_send_command(struct tm1637_softc *sc, u_char cmd)
 static int
 tm1637_send_data1(struct tm1637_softc *sc, size_t pos)
 {
-    int err;
-    u_char addr = TM1637_START_ADDRESS + pos;
-    u_char data = sc->tm1637_digits[pos];
-
-    gpiobb_start(sc->dev);
-    // Send address
-    err = tm1637_gpio_sendbyte(sc->dev, addr);
-    if (err)
-    {
-	// A stop bit needed before a retry
-	gpiobb_stop(sc->dev);
-
-	device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
+	int err;
+	u_char addr = TM1637_START_ADDRESS + pos;
+	u_char data = sc->tm1637_digits[pos];
 
 	gpiobb_start(sc->dev);
 	err = tm1637_gpio_sendbyte(sc->dev, addr);
+
 	if (err)
 	{
-	    // Give up this time and a stop bit
-	    gpiobb_stop(sc->dev);
+		// A stop bit needed before a retry
+		gpiobb_stop(sc->dev);
+		device_printf(sc->dev, "No ack when sent address 0x%02x, resending\n", addr);
 
-	    device_printf(sc->dev, "No ack when resent address 0x%02x, canceled\n", addr);
+		gpiobb_start(sc->dev);
+		err = tm1637_gpio_sendbyte(sc->dev, addr);
 
-	    return err;
+		if (err)
+		{
+			// Give up this time and send a stop bit
+			gpiobb_stop(sc->dev);
+			device_printf(sc->dev, "No ack when resent address 0x%02x, canceled\n", addr);
+			return err;
+		}
 	}
-    }
 
-    // Send data to the address
-    err = tm1637_gpio_sendbyte(sc->dev, data);
-    if (err)
-    {
-	// Resend data to the same address with no stop bit
+	// Send data to the address
 	err = tm1637_gpio_sendbyte(sc->dev, data);
-	gpiobb_stop(sc->dev);
-	device_printf(sc->dev, "No ack when sent data 0x%02x twice, canceled\n", data);
 
-	return err;
-    }
-    gpiobb_stop(sc->dev);
+	if (err)
+	{
+		// Resend data to the same address with no stop bit
+		err = tm1637_gpio_sendbyte(sc->dev, data);
+		gpiobb_stop(sc->dev);
+		device_printf(sc->dev, "No ack when sent data 0x%02x twice, canceled\n", data);
+		return err;
+	}
+	gpiobb_stop(sc->dev);
 
 #ifdef DEBUG
-    uprintf("display: ");
-    uprintf("%i[    %02x]\n",
-            TM1637_COLON_POSITION - 1,
-            sc->tm1637_digits[TM1637_COLON_POSITION - 1]);
+	uprintf("display: ");
+	uprintf("%i[    %02x]\n", pos, data);
 #endif
 
-    return 0;
+	return 0;
 }
 
 /*
@@ -756,7 +738,7 @@ tm1637_display_digits(struct tm1637_softc *sc, size_t first, size_t last)
     int err;
 
     // Prepare to an autoincremented address data transfer
-    err = tm1637_send_command(sc, TM1637_ADDRESS_AUTO);
+    err = tm1637_send_command(sc->dev, TM1637_ADDRESS_AUTO);
     if (err)
 	sc->needupdate = true;
     else
@@ -787,7 +769,7 @@ tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 	sc->tm1637_digits[TM1637_COLON_POSITION - 1] &= 0x7f;
 
     // Prepare to an one byte data transfer
-    err = tm1637_send_command(sc, TM1637_ADDRESS_FIXED);
+    err = tm1637_send_command(sc->dev, TM1637_ADDRESS_FIXED);
     if (err)
 	sc->needupdate = true;
     else
@@ -900,7 +882,7 @@ tm1637_display_on(struct tm1637_softc *sc)
 	}
 	sc->on = 1;
 
-	err = tm1637_send_command(sc, 0x88|sc->brightness);
+	err = tm1637_send_command(sc->dev, 0x88|sc->brightness);
 
 #ifdef DEBUG
 	uprintf("Display turned on\n");
@@ -929,7 +911,7 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 	// Only change variable if a display is not on
 	if(sc->on != 0)
 	{
-	    err = tm1637_send_command(sc, 0x88|sc->brightness);
+	    err = tm1637_send_command(sc->dev, 0x88|sc->brightness);
 
 #ifdef DEBUG
 	    uprintf("is %d now\n", sc->brightness);
@@ -963,7 +945,7 @@ tm1637_display_off(struct tm1637_softc *sc)
     if(sc->on != 0)
     {
 	sc->on = 0;
-	err = tm1637_send_command(sc, 0x80);
+	err = tm1637_send_command(sc->dev, 0x80);
 
 #ifdef DEBUG
 	uprintf("Display turned off\n");
