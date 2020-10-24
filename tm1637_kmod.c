@@ -319,9 +319,10 @@ gpiobb_setsda(device_t dev, int val)
 {
 	struct tm1637_softc *sc = device_get_softc(dev);
 
+#ifndef I2C_LIKE
 	gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
 	gpio_pin_set_active(sc->sdapin, val);
-/*
+#else
 	if (val) {
 		gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
 	} else {
@@ -329,7 +330,7 @@ gpiobb_setsda(device_t dev, int val)
 		    GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
 		gpio_pin_set_active(sc->sdapin, 0);
 	}
-*/
+#endif
 }
 
 static void
@@ -337,9 +338,10 @@ gpiobb_setscl(device_t dev, int val)
 {
 	struct tm1637_softc *sc = device_get_softc(dev);
 
+#ifndef I2C_LIKE
 	gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
 	gpio_pin_set_active(sc->sclpin, val);
-/*
+#else
 	if (val) {
 		gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
 	} else {
@@ -347,7 +349,7 @@ gpiobb_setscl(device_t dev, int val)
 		    GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
 		gpio_pin_set_active(sc->sclpin, 0);
 	}
-*/
+#endif
 }
 
 static int
@@ -442,13 +444,17 @@ gpiobb_clockout(device_t dev)
 static int
 gpiobb_sendbit(device_t dev, int bit)
 {
+#ifdef I2C_LIKE
 	struct tm1637_softc *sc = device_get_softc(dev);
+#endif
 	int err;
 
 	err = gpiobb_clockin(dev, bit);
 	if (err != 0)
 		return (err);
+#ifdef I2C_LIKE
 	DELAY(sc->udelay);
+#endif
 	gpiobb_clockout(dev);
 	return (0);
 }
@@ -536,7 +542,9 @@ gpiobb_getack(device_t dev)
 		DELAY(1);
 	}
 
+#ifdef I2C_LIKE
 	DELAY(sc->udelay - t);
+#endif
 	gpiobb_clockout(dev);
 
 	I2C_DEBUG(printf("%c ", noack ? '-' : '+'));
@@ -939,19 +947,19 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 static void
 tm1637_display_off(struct tm1637_softc *sc)
 {
-    int err;
+	int err;
 
-    // Do nothing is always off
-    if(sc->on != 0)
-    {
-	sc->on = 0;
-	err = tm1637_send_command(sc->dev, 0x80);
+	// Do nothing is always off
+	if(sc->on != 0)
+	{
+		sc->on = 0;
+		err = tm1637_send_command(sc->dev, 0x80);
 
 #ifdef DEBUG
-	uprintf("Display turned off\n");
+		uprintf("Display turned off\n");
 #endif
 
-    }
+	}
 }
 
 /*
@@ -960,23 +968,23 @@ tm1637_display_off(struct tm1637_softc *sc)
 static void
 tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
 {
-    int t;
+	int t;
 
-    // Four clock digits
-    t = clock.tm_hour / 10;
-    sc->tm1637_digits[0] = char_code[t&0x0f];
-    t = clock.tm_hour % 10;
-    sc->tm1637_digits[1] = char_code[t];
-    t = clock.tm_min / 10;
-    sc->tm1637_digits[2] = char_code[t&0x0f];
-    t = clock.tm_min % 10;
-    sc->tm1637_digits[3] = char_code[t];
+	// Four clock digits
+	t = clock.tm_hour / 10;
+	sc->tm1637_digits[0] = char_code[t&0x0f];
+	t = clock.tm_hour % 10;
+	sc->tm1637_digits[1] = char_code[t];
+	t = clock.tm_min / 10;
+	sc->tm1637_digits[2] = char_code[t&0x0f];
+	t = clock.tm_min % 10;
+	sc->tm1637_digits[3] = char_code[t];
 
-    // Clockpoint
-    if (clock.tm_colon)
-	sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
+	// Clockpoint
+	if (clock.tm_colon)
+		sc->tm1637_digits[TM1637_COLON_POSITION - 1] |= 0x80;
 
-    tm1637_update_display(sc);
+	tm1637_update_display(sc);
 }
 
 static int
@@ -1355,37 +1363,37 @@ static int
 tm1637_open(struct cdev *cdev, int oflags __unused, int devtype __unused,
     struct thread *td __unused)
 {
-    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
+	struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
 
-    TM1637_LOCK(sc);
-    if (sc->inuse) {
-        TM1637_UNLOCK(sc);
-        return (EBUSY);
-    }
-    /* move to init */
-    sc->inuse = true;
-    TM1637_UNLOCK(sc);
+	TM1637_LOCK(sc);
+	if (sc->inuse) {
+		TM1637_UNLOCK(sc);
+		return (EBUSY);
+	}
+	/* move to init */
+	sc->inuse = true;
+	TM1637_UNLOCK(sc);
 
 #ifdef DEBUG
-    uprintf("Opened device \"%s\" successfully.\n", cdevsw.d_name);
+	uprintf("Opened device \"%s\" successfully.\n", cdevsw.d_name);
 #endif
 
-    return (0);
+	return (0);
 }
 
 static int
 tm1637_close(struct cdev *cdev __unused, int fflag __unused, int devtype __unused,
     struct thread *td __unused)
 {
-    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
+	struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
 
-    sc->inuse = false;
+	sc->inuse = false;
 
 #ifdef DEBUG
-    uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);
+	uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);
 #endif
 
-    return (0);
+	return (0);
 }
 
 static int
