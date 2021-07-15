@@ -36,7 +36,7 @@
 
 #define	TM1637_COLON_POSITION	2 // 2-nd character
 #define TM1637_MAX_COLOM	4
-#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2 // For ':' and '\n'
+#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2
 
 struct tm1637_clock_t {
     int tm_min;
@@ -49,14 +49,19 @@ struct tm1637_clock_t {
 #define TM1637IOC_ON			_IO('T', 3)
 #define TM1637IOC_SET_BRIGHTNESS	_IOW('T', 11, uint8_t)
 #define TM1637IOC_SET_CLOCKPOINT	_IOW('T', 12, uint8_t)
-#define TM1637IOC_SET_RAWMODE		_IOW('T', 13, uint8_t)
 #define TM1637IOC_SET_CLOCK		_IOW('T', 14, struct tm1637_clock_t)
-#define TM1637IOC_GET_RAWMODE		_IOR('T', 23, uint8_t)
 
-struct s_message {
-    char text[TM1637_BUFFERSIZE + 1]; // ??? +1
-    int offset;
-    int len;
-};
+#define CHR_0				0x3f
+#define CHR_1				0x06
+#define CHR_2				0x5b
+#define CHR_3				0x4f
+#define CHR_4				0x66
+#define CHR_5				0x6d
+#define CHR_6				0x7d
+#define CHR_7				0x07
+#define CHR_8				0x7f
+#define CHR_9				0x6f
+#define CHR_SPACE			0x00
+#define CHR_GYPHEN			0x40
 
 #endif /* _TM1637_KMOD_H_ */
