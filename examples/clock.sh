@@ -1,18 +1,16 @@
 #!/bin/sh
 
-/sbin/sysctl dev.tm1637.0.raw_mode=0
-
 # trap ctrl-c and call ctrl_c()
 trap ctrl_c INT
 
 ctrl_c() {
   # Blank the display and exit
-  echo "" > /dev/tm1637
+  echo -n "    " > /dev/tm1637/0
   exit
 }
 
 # A little show off
-echo "--:--" > /dev/tm1637
+echo -n "--:--" > /dev/tm1637/0
 sleep 1
 
 # Main loop
@@ -25,6 +23,6 @@ while(true); do
   _TIME=`/bin/date -j "+%H${_COLON}%M"`
 
   # Send current time string ended up with "\n"  to the display
-  echo ${_TIME} > /dev/tm1637
+  echo -n ${_TIME} > /dev/tm1637/0
   sleep 1
 done
