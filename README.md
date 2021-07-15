@@ -201,6 +201,6 @@ The driver is tested on Orange Pi PC and Raspberry Pi 2.
 ## A couple of words
 
 There is another driver for `tm1637` displays -
-[cuse based one](https://gitlab.com/alexandermishin13/tm1637-cuse).
+[`cuse`-based one](https://gitlab.com/alexandermishin13/tm1637-cuse).
 It does not require the kernel source to compile, but requires a loaded
 kernel module `cuse.ko` to work.
