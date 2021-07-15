@@ -131,7 +131,7 @@ segments are lit).
 For a colon in the middle of the display set an eighth bit of the second data
 byte, or clear it for turn the colon off (See example above).
 You can also write all four byte at once by a command `0x40` followed by
-address `0xc0` and four bytes of bitmasks (See tm1637 datasheet).
+address `0xc0` and four bytes of bitmasks (See `tm1637` datasheet).
 
 ## ioctl() functions
 
@@ -197,3 +197,10 @@ Do not know yet.
 ## Status
 
 The driver is tested on Orange Pi PC and Raspberry Pi 2.
+
+## A couple of words
+
+There is another driver for `tm1637` displays -
+[cuse based one](https://gitlab.com/alexandermishin13/tm1637-cuse).
+It does not require the kernel source to compile, but requires a loaded
+kernel module `cuse.ko` to work.
