@@ -109,7 +109,6 @@ struct tm1637_buf_t {
 	unsigned char		 text[TM1637_BUFFERSIZE];
 	size_t			 length;
 	uint8_t			 codes[TM1637_MAX_COLOM];
-	bool			 marks[TM1637_MAX_COLOM];
 };
 
 struct tm1637_softc {
@@ -397,7 +396,7 @@ is_raw_command(struct tm1637_softc *sc)
 	break;
     default:
 	/* Send one byte command to light display with the bright level 0..7 */
-	if ((c = (buf->text[0]^TM1637_DISPLAY_CTRL)) <= TM1637_BRIGHTEST) {
+	if ((c = (buf->text[0]^TM1637_DISPLAY_CTRL)) <= BRIGHT_BRIGHTEST) {
 	    sc->brightness = c;
 	    tm1637_display_on(sc);
 	    break;
@@ -816,7 +815,7 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 {
 	/* If brightness is really changed */
 	if ((brightness != sc->brightness) &&
-	    (brightness <= TM1637_BRIGHTEST))
+	    (brightness <= BRIGHT_BRIGHTEST))
 	{
 		sc->brightness = brightness;
 		/* Only change variable if a display is not on */
@@ -1137,7 +1136,7 @@ tm1637_attach(device_t dev)
 		if (brightness <= 7)
 			sc->brightness = brightness;
 		else
-			sc->brightness = TM1637_BRIGHT_DARKEST;
+			sc->brightness = BRIGHT_DARKEST;
 	}
 
 	sc->scl_low_timeout = DEFAULT_SCL_LOW_TIMEOUT;

@@ -29,14 +29,14 @@
 #ifndef _TM1637_KMOD_H_
 #define _TM1637_KMOD_H_
 
-#define TM1637_BRIGHT_DARKEST	0
-#define TM1637_BRIGHT_DARK	1
-#define TM1637_BRIGHT_TYPICAL	2
-#define TM1637_BRIGHTEST	7
+#define BRIGHT_DARKEST			0
+#define BRIGHT_DARK			1
+#define BRIGHT_TYPICAL			2
+#define BRIGHT_BRIGHTEST		7
 
-#define	TM1637_COLON_POSITION	2 // 2-nd character
-#define TM1637_MAX_COLOM	4
-#define	TM1637_BUFFERSIZE	TM1637_MAX_COLOM + 2
+#define	TM1637_COLON_POSITION		2 // 2-nd character
+#define TM1637_MAX_COLOM		4
+#define	TM1637_BUFFERSIZE		TM1637_MAX_COLOM + 2
 
 struct tm1637_clock_t {
     int tm_min;
