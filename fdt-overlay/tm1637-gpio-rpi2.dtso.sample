@@ -29,9 +29,8 @@
 	/* From 0 to 7. 0 is a darkest */
 	default-brightness-level = <1>;
 
-	/* Uncomment for a bytes of segments input
-	 * A human readable string, otherwise */
-	//raw-mode;
+	/* Number of display digits. Defaults is 4 */
+	//number-of-digits = <6>;
 
 	status = "okay";
     };
