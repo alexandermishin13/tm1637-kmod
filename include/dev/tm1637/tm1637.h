@@ -35,8 +35,6 @@
 #define BRIGHT_BRIGHTEST		7
 
 #define	TM1637_COLON_POSITION		2 // 2-nd character
-#define TM1637_MAX_COLOM		4
-#define	TM1637_BUFFERSIZE		TM1637_MAX_COLOM + 2
 
 struct tm1637_clock_t {
     int tm_min;

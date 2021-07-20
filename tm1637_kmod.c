@@ -97,18 +97,20 @@ SYSCTL_INT(_hw_i2c, OID_AUTO, iicbb_debug, CTLFLAG_RWTUN,
 /* Based on the SMBus specification. */
 #define	DEFAULT_SCL_LOW_TIMEOUT	(25 * 1000)
 
-MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 module");
-
 static const u_char char_code[10] = {
 	CHR_0, CHR_1, CHR_2, CHR_3, CHR_4,
 	CHR_5, CHR_6, CHR_7, CHR_8, CHR_9
 };
 
 /* Buffer struct */
+MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 display");
+MALLOC_DEFINE(M_TM1637COD, "tm1637codes", "Masks array for tm1637 display");
+
 struct tm1637_buf_t {
-	unsigned char		 text[TM1637_BUFFERSIZE];
-	size_t			 length;
-	uint8_t			 codes[TM1637_MAX_COLOM];
+    size_t			 number;
+    size_t			 length;
+    uint8_t			*codes;
+    unsigned char		*text;
 };
 
 struct tm1637_softc {
@@ -241,24 +243,24 @@ tm1637_setup_fdt_pins(struct tm1637_softc *sc)
 static int
 tm1637_brightness_sysctl(SYSCTL_HANDLER_ARGS)
 {
-	struct tm1637_softc *sc = arg1;
-	uint8_t brightness = sc->brightness;
-	int error;
+    struct tm1637_softc *sc = arg1;
+    uint8_t brightness = sc->brightness;
+    int error;
 
-	error = SYSCTL_OUT(req, &brightness, sizeof(brightness));
-	if (error != 0 || req->newptr == NULL)
-		return (error);
+    error = SYSCTL_OUT(req, &brightness, sizeof(brightness));
+    if (error != 0 || req->newptr == NULL)
+	return (error);
 
-	error = SYSCTL_IN(req, &brightness, sizeof(brightness));
-	if (error != 0)
-		return (error);
+    error = SYSCTL_IN(req, &brightness, sizeof(brightness));
+    if (error != 0)
+	return (error);
 
-	if (brightness > 7)
-		return (EINVAL);
+    if (brightness > 7)
+	return (EINVAL);
 
-	tm1637_set_brightness(sc, brightness);
+    tm1637_set_brightness(sc, brightness);
 
-	return (0);
+    return (0);
 }
 
 /*
@@ -323,7 +325,7 @@ buffer_convert(struct tm1637_softc *sc)
     int i, p;
     struct tm1637_buf_t *buf = &sc->buffer;
 
-    if (buf->length == 5) {
+    if ((buf->number == 4) && (buf->length) == 5) {
 	i = 0;
 	p = 0;
 
@@ -342,11 +344,46 @@ buffer_convert(struct tm1637_softc *sc)
 
 	    if (digit_convert(&buf->codes[p], buf->text[i++]))
 		return (-1);
-	} while (++p < TM1637_MAX_COLOM);
+	} while (++p < buf->number);
+    }
+    else
+    if (buf->number == 6) {
+	i = buf->length;
+	p = 2;
+
+	if (i <= 0)
+	    return (-1);
+
+	/* Revers order for right aligned result */
+	while (i > 0) {
+	    unsigned char c;
+
+	    if (++p >= buf->number)
+		p = 0;
+
+	    c = buf->text[--i];
+	    if (c == '.') {
+		/* If a dot check for buffer is not empty,
+		 * get a number followed by the dot (backward, of course),
+		 * and set its eighth bit to light the dot segment
+		 */
+		if (i <= 0)
+		    return (-1);
+
+		c = buf->text[--i];
+		if (digit_convert(&buf->codes[p], c) < 0)
+		    return (-1);
+
+		buf->codes[p] |= 0x80;
+	    }
+	    else
+		if (digit_convert(&buf->codes[p], c) < 0)
+		    return (-1);
+	}
     }
     else {
 	i = buf->length;
-	p = TM1637_MAX_COLOM;
+	p = buf->number;
 
 	if (i <= 0)
 	    return (-1);
@@ -371,7 +408,7 @@ is_raw_command(struct tm1637_softc *sc)
     /* Send one byte at a fixed position */
     case TM1637_ADDRESS_FIXED:
 	if ((buf->length < 3) ||
-	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= TM1637_MAX_COLOM))
+	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= buf->number))
 	    return (-1);
 
 	buf->codes[start] = buf->text[2];
@@ -380,11 +417,11 @@ is_raw_command(struct tm1637_softc *sc)
     /* Send up to 4 bytes at an autoincremented position */
     case TM1637_ADDRESS_AUTO:
 	if ((buf->length < 3) ||
-	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= TM1637_MAX_COLOM))
+	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= buf->number))
 	    return (-1);
 
 	tmp = start;
-	stop = MIN(buf->length-2, TM1637_MAX_COLOM);
+	stop = MIN(buf->length-2, buf->number);
 	for (size_t i=2; tmp<stop; tmp++)
 	    buf->codes[tmp] = buf->text[i++];
 
@@ -410,110 +447,110 @@ is_raw_command(struct tm1637_softc *sc)
 static void
 gpiobb_setsda(device_t dev, int val)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
+    struct tm1637_softc *sc = device_get_softc(dev);
 
 #ifndef I2C_LIKE
-	gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
-	gpio_pin_set_active(sc->sdapin, val);
+    gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
+    gpio_pin_set_active(sc->sdapin, val);
 #else
-	if (val) {
-		gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
-	} else {
-		gpio_pin_setflags(sc->sdapin,
-		    GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
-		gpio_pin_set_active(sc->sdapin, 0);
-	}
+    if (val) {
+	gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
+    } else {
+	gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
+	gpio_pin_set_active(sc->sdapin, 0);
+    }
 #endif
 }
 
 static void
 gpiobb_setscl(device_t dev, int val)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
+    struct tm1637_softc *sc = device_get_softc(dev);
 
 #ifndef I2C_LIKE
-	gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
-	gpio_pin_set_active(sc->sclpin, val);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
+    gpio_pin_set_active(sc->sclpin, val);
 #else
-	if (val) {
-		gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
-	} else {
-		gpio_pin_setflags(sc->sclpin,
-		    GPIO_PIN_OUTPUT | GPIO_PIN_OPENDRAIN);
-		gpio_pin_set_active(sc->sclpin, 0);
-	}
+    if (val) {
+	gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
+    } else {
+	gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
+	gpio_pin_set_active(sc->sclpin, 0);
+    }
 #endif
 }
 
 static int
 gpiobb_getsda(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-	bool val;
+    struct tm1637_softc *sc = device_get_softc(dev);
+    bool val;
 
-	gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
-	gpio_pin_is_active(sc->sdapin, &val);
-	return (val);
+    gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->sdapin, &val);
+    return (val);
 }
 
 static int
 gpiobb_getscl(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-	bool val;
+    struct tm1637_softc *sc = device_get_softc(dev);
+    bool val;
 
-	gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
-	gpio_pin_is_active(sc->sclpin, &val);
-	return (val);
+    gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
+    gpio_pin_is_active(sc->sclpin, &val);
+    return (val);
 }
 
 static int
 gpiobb_waitforscl(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-	sbintime_t fast_timeout;
-	sbintime_t now, timeout;
+    struct tm1637_softc *sc = device_get_softc(dev);
+    sbintime_t fast_timeout;
+    sbintime_t now, timeout;
 
-	/* Spin for up to 1 ms, then switch to pause. */
+    /* Spin for up to 1 ms, then switch to pause. */
+    now = sbinuptime();
+    fast_timeout = now + SBT_1MS;
+    timeout = now + sc->scl_low_timeout * SBT_1US;
+
+    do {
+	if (GPIOBB_GETSCL(dev))
+	    return (0);
 	now = sbinuptime();
-	fast_timeout = now + SBT_1MS;
-	timeout = now + sc->scl_low_timeout * SBT_1US;
-	do {
-		if (GPIOBB_GETSCL(dev))
-			return (0);
-		now = sbinuptime();
-	} while (now < fast_timeout);
-	do {
-		I2C_DEBUG(printf("."));
-		pause_sbt("gpiobb-scl-low", SBT_1MS, C_PREL(8), 0);
-		if (GPIOBB_GETSCL(dev))
-			return (0);
-		now = sbinuptime();
-	} while (now < timeout);
+    } while (now < fast_timeout);
 
-	I2C_DEBUG(printf("*"));
-	return (IIC_ETIMEOUT);
+    do {
+	I2C_DEBUG(printf("."));
+	pause_sbt("gpiobb-scl-low", SBT_1MS, C_PREL(8), 0);
+	if (GPIOBB_GETSCL(dev))
+	    return (0);
+	now = sbinuptime();
+    } while (now < timeout);
+
+    I2C_DEBUG(printf("*"));
+    return (IIC_ETIMEOUT);
 }
 
 /* Start the high phase of the clock. */
 static int
 gpiobb_clockin(device_t dev, int sda)
 {
+    /*
+     * Precondition: SCL is low.
+     * Action:
+     * - set SDA to the value;
+     * - release SCL and wait until it's high.
+     * The caller is responsible for keeping SCL high for udelay.
+     *
+     * There should be a data set-up time, 250 ns minimum, between setting
+     * SDA and raising SCL.  It's expected that the I/O access latency will
+     * naturally provide that delay.
+     */
+    GPIOBB_SETSDA(dev, sda);
+    GPIOBB_SETSCL(dev, 1);
 
-	/*
-	 * Precondition: SCL is low.
-	 * Action:
-	 * - set SDA to the value;
-	 * - release SCL and wait until it's high.
-	 * The caller is responsible for keeping SCL high for udelay.
-	 *
-	 * There should be a data set-up time, 250 ns minimum, between setting
-	 * SDA and raising SCL.  It's expected that the I/O access latency will
-	 * naturally provide that delay.
-	 */
-	GPIOBB_SETSDA(dev, sda);
-	GPIOBB_SETSCL(dev, 1);
-	return (gpiobb_waitforscl(dev));
+    return (gpiobb_waitforscl(dev));
 }
 
 /*
@@ -523,33 +560,34 @@ gpiobb_clockin(device_t dev, int sda)
 static void
 gpiobb_clockout(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
+    struct tm1637_softc *sc = device_get_softc(dev);
 
-	/*
-	 * Precondition: SCL is high.
-	 * Action:
-	 * - pull SCL low and hold for udelay.
-	 */
-	GPIOBB_SETSCL(dev, 0);
-	DELAY(sc->udelay);
+    /*
+     * Precondition: SCL is high.
+     * Action:
+     * - pull SCL low and hold for udelay.
+     */
+    GPIOBB_SETSCL(dev, 0);
+    DELAY(sc->udelay);
 }
 
 static int
 gpiobb_sendbit(device_t dev, int bit)
 {
 #ifdef I2C_LIKE
-	struct tm1637_softc *sc = device_get_softc(dev);
+    struct tm1637_softc *sc = device_get_softc(dev);
 #endif
-	int err;
+    int err;
 
-	err = gpiobb_clockin(dev, bit);
-	if (err != 0)
-		return (err);
+    err = gpiobb_clockin(dev, bit);
+    if (err != 0)
+	return (err);
 #ifdef I2C_LIKE
-	DELAY(sc->udelay);
+    DELAY(sc->udelay);
 #endif
-	gpiobb_clockout(dev);
-	return (0);
+    gpiobb_clockout(dev);
+
+    return (0);
 }
 
 /*
@@ -765,7 +803,7 @@ static void
 tm1637_update_display(struct tm1637_softc *sc)
 {
 	if(sc->on) {
-		tm1637_send_data(sc, 0, TM1637_MAX_COLOM);
+		tm1637_send_data(sc, 0, sc->buffer.number);
 		/* Clear the flag if it is set */
 		if(sc->needupdate)
 			sc->needupdate = false;
@@ -780,7 +818,7 @@ tm1637_update_display(struct tm1637_softc *sc)
 static void
 tm1637_clear_display(struct tm1637_softc *sc)
 {
-	size_t position = TM1637_MAX_COLOM;
+	size_t position = sc->buffer.number;
 
 	/* Display all blanks */
 	while(position--)
@@ -788,7 +826,7 @@ tm1637_clear_display(struct tm1637_softc *sc)
 
 	/* If display is off right now then mark it for update when it is on */
 	if(sc->on)
-		tm1637_send_data(sc, 0, TM1637_MAX_COLOM);
+		tm1637_send_data(sc, 0, sc->buffer.number);
 	else
 		sc->needupdate = true;
 }
@@ -801,7 +839,7 @@ tm1637_display_on(struct tm1637_softc *sc)
 {
 	if(!sc->on) {
 		sc->on = true;
-		tm1637_send_data(sc, 0, TM1637_MAX_COLOM);
+		tm1637_send_data(sc, 0, sc->buffer.number);
 	}
 	/* Light the display anyway */
 	tm1637_send_command(sc, TM1637_DISPLAY_CTRL|sc->brightness);
@@ -1019,7 +1057,7 @@ tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 	size_t amount;
 	off_t uio_offset_saved;
 
-	amount = MIN(uio->uio_resid, TM1637_BUFFERSIZE);
+	amount = MIN(uio->uio_resid, (sc->buffer.number + 2));
 	uio_offset_saved = uio->uio_offset;
 	error = uiomove(sc->buffer.text, amount, uio);
 	uio->uio_offset = uio_offset_saved;
@@ -1032,7 +1070,7 @@ tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 		return (0);
 
 	if (buffer_convert(sc) == 0) {
-		tm1637_send_data(sc, 0, TM1637_MAX_COLOM);
+		tm1637_send_data(sc, 0, sc->buffer.number);
 		return (0);
 	}
 
@@ -1070,6 +1108,9 @@ tm1637_detach(device_t dev)
 
 	if (sc->sdapin != NULL)
 		gpio_pin_release(sc->sdapin);
+
+	free(sc->buffer.text, M_TM1637BUF);
+	free(sc->buffer.codes, M_TM1637COD);
 
 	TM1637_LOCK_DESTROY(sc);
 
@@ -1110,6 +1151,28 @@ tm1637_attach(device_t dev)
 	    device_get_nameunit(GPIO_GET_BUS(sc->sclpin->dev)), sc->sclpin->pin,
 	    device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin);
 
+	/* Set properties */
+	uint32_t brightness;
+	if (OF_getencprop(sc->node, "default-brightness-level", &brightness, sizeof(uint32_t)) == sizeof(uint32_t))
+	{
+		if (brightness <= 7)
+			sc->brightness = brightness;
+		else
+			sc->brightness = BRIGHT_DARKEST;
+	}
+
+	uint32_t digits;
+	if (OF_getencprop(sc->node, "number-of-digits", &digits, sizeof(uint32_t)) == sizeof(uint32_t))
+	{
+		if ((digits == 4) || (digits == 6))
+			sc->buffer.number = digits;
+		else
+			sc->buffer.number = 4;
+	}
+
+	sc->buffer.codes = malloc(sc->buffer.number, M_TM1637COD, M_WAITOK | M_ZERO);
+	sc->buffer.text = malloc(sc->buffer.number + 2, M_TM1637BUF, M_WAITOK | M_ZERO);
+
 	/* Create the tm1637 cdev. */
 	err = make_dev_p(MAKEDEV_CHECKNAME | MAKEDEV_WAITOK,
 	    &sc->cdev,
@@ -1129,22 +1192,16 @@ tm1637_attach(device_t dev)
 	sc->cdev->si_drv1 = sc;
 	tm1637_set_speed(sc, TM1637_BUSFREQ);
 
-	/* Set properties */
-	uint32_t brightness;
-	if (OF_getencprop(sc->node, "default-brightness-level", &brightness, sizeof(uint32_t)) == sizeof(uint32_t))
-	{
-		if (brightness <= 7)
-			sc->brightness = brightness;
-		else
-			sc->brightness = BRIGHT_DARKEST;
-	}
-
 	sc->scl_low_timeout = DEFAULT_SCL_LOW_TIMEOUT;
 
 	/* Create sysctl variables and set their handlers */
 	SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
 	    "delay", CTLFLAG_RD, &sc->udelay,
 	    0, "Signal change delay controlled by bus frequency, microseconds");
+
+	SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
+	    "digits", CTLFLAG_RD, &sc->buffer.number,
+	    0, "Number of display digits");
 
 	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
 	    "brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,

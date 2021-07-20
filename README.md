@@ -44,7 +44,10 @@ Compile and install the kernel driver:
 ```
 
 Compile and install a fdt overlays You need it for declare `tm1637` device.
-Edit the overlay source for the a pins definition first:
+Choose a sample of overlay source suits your platform best and copy it
+with extension ```.dtso```.
+Edit the overlay source, for the a pins definition at least, build and
+install it:
 ```shell
 % cd ./fdt-overlays
 % make
