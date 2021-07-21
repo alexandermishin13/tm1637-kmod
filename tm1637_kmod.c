@@ -133,6 +133,8 @@ static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
 
+static int tm1637_fdt_get_params(struct tm1637_softc*);
+
 static void gpiobb_setsda(device_t, int);
 static void gpiobb_setscl(device_t, int);
 static int gpiobb_getsda(device_t);
@@ -169,6 +171,8 @@ static struct ofw_compat_data compat_data[] = {
 OFWBUS_PNP_INFO(compat_data);
 SIMPLEBUS_PNP_INFO(compat_data);
 
+#endif
+
 static device_method_t tm1637_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		tm1637_probe),
@@ -189,6 +193,64 @@ DRIVER_MODULE(tm1637, simplebus, tm1637_driver, tm1637_devclass, NULL, NULL);
 //DRIVER_MODULE(tm1637, gpiobus, tm1637_driver, tm1637_devclass, NULL, NULL);
 MODULE_VERSION(tm1637, 1);
 //MODULE_DEPEND(tm1637, gpiobus, 1, 1, 1);
+
+#ifdef FDT
+
+static int
+tm1637_fdt_get_params(struct tm1637_softc *sc)
+{
+    pcell_t param_cell;
+    ssize_t param_found;
+    uint32_t param;
+
+    param_found = OF_getencprop(sc->node, "default-brightness-level", &param_cell, sizeof(param_cell));
+
+    if (param_found > 0) {
+	param = (uint32_t)param_cell;
+
+	if (param > BRIGHT_BRIGHTEST) {
+	    device_printf(sc->dev,
+			"could not acquire correct brightness level from DTS\n");
+	    return (EINVAL);
+	}
+
+	sc->brightness = (uint8_t)param;
+	if (bootverbose)
+	    device_printf(sc->dev,
+			"Acquired brightness level: %u %s\n", sc->brightness, "from DTS");
+    }
+    else {
+	sc->brightness = BRIGHT_TYPICAL;
+	if (bootverbose)
+	    device_printf(sc->dev,
+			"Acquired brightness level: %u %s\n", sc->brightness, "by default");
+    }
+
+    param_found = OF_getencprop(sc->node, "number-of-digits", &param_cell, sizeof(param_cell));
+
+    if (param_found > 0) {
+	param = (uint32_t)param_cell;
+
+	if ((param != 4) && (param != 6))  {
+	    device_printf(sc->dev,
+			"could not acquire correct number of digits from DTS\n");
+	    return (EINVAL);
+	}
+
+	sc->buffer.number = (size_t)param;
+	if (bootverbose)
+	    device_printf(sc->dev,
+			"Acquired number of digits: %u %s\n", sc->buffer.number, "from DTS");
+    }
+    else {
+	sc->buffer.number = 4;
+	if (bootverbose)
+	    device_printf(sc->dev,
+			"Acquired number of digits: %u %s\n", sc->buffer.number, "by default");
+    }
+
+    return (0);
+}
 
 static int
 tm1637_setup_fdt_pins(struct tm1637_softc *sc)
@@ -882,23 +944,31 @@ tm1637_display_off(struct tm1637_softc *sc)
 static void
 tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
 {
-	int t;
+    int t;
 
-	// Four clock digits
-	t = clock.tm_hour / 10;
-	sc->buffer.codes[0] = char_code[t&0x0f];
-	t = clock.tm_hour % 10;
+    t = clock.tm_hour / 10;
+    sc->buffer.codes[0] = char_code[t&0x0f];
+    t = clock.tm_hour % 10;
+    // Four clock digits
+    if (sc->buffer.number == 4) {
 	sc->buffer.codes[1] = char_code[t];
 	t = clock.tm_min / 10;
 	sc->buffer.codes[2] = char_code[t&0x0f];
-	t = clock.tm_min % 10;
-	sc->buffer.codes[3] = char_code[t];
+    }
+    else
+    if (sc->buffer.number == 6) {
+	sc->buffer.codes[5] = char_code[t];
+	t = clock.tm_min / 10;
+	sc->buffer.codes[4] = char_code[t&0x0f];
+    }
+    t = clock.tm_min % 10;
+    sc->buffer.codes[3] = char_code[t];
 
-	// Clockpoint
-	if (clock.tm_colon)
-		sc->buffer.codes[TM1637_COLON_POSITION - 1] |= 0x80;
+    // Clockpoint
+    if (clock.tm_colon)
+	sc->buffer.codes[TM1637_COLON_POSITION - 1] |= 0x80;
 
-	tm1637_update_display(sc);
+    tm1637_update_display(sc);
 }
 
 static int
@@ -1088,7 +1158,7 @@ tm1637_probe(device_t dev)
 		rv = BUS_PROBE_DEFAULT;
 #endif
 
-	device_set_desc(dev, "TM1637 4 Digit 7 Segment Display");
+	device_set_desc(dev, "TM1637 N Digits 7 Segment Display");
 
 	return (rv);
 }
@@ -1146,29 +1216,17 @@ tm1637_attach(device_t dev)
 		return (ENXIO);
 	}
 
+#ifdef FDT
+	/* Set properties */
+	if ((err = tm1637_fdt_get_params(sc)) != 0)
+		return (err);
+#endif
+
 	/* Say what we came up with for pin config. */
-	device_printf(dev, "SCL pin: %s:%d, SDA pin: %s:%d\n",
+	device_printf(dev, "Digits: %u, SCL pin: %s:%d, SDA pin: %s:%d\n",
+	    sc->buffer.number,
 	    device_get_nameunit(GPIO_GET_BUS(sc->sclpin->dev)), sc->sclpin->pin,
 	    device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin);
-
-	/* Set properties */
-	uint32_t brightness;
-	if (OF_getencprop(sc->node, "default-brightness-level", &brightness, sizeof(uint32_t)) == sizeof(uint32_t))
-	{
-		if (brightness <= 7)
-			sc->brightness = brightness;
-		else
-			sc->brightness = BRIGHT_DARKEST;
-	}
-
-	uint32_t digits;
-	if (OF_getencprop(sc->node, "number-of-digits", &digits, sizeof(uint32_t)) == sizeof(uint32_t))
-	{
-		if ((digits == 4) || (digits == 6))
-			sc->buffer.number = digits;
-		else
-			sc->buffer.number = 4;
-	}
 
 	sc->buffer.codes = malloc(sc->buffer.number, M_TM1637COD, M_WAITOK | M_ZERO);
 	sc->buffer.text = malloc(sc->buffer.number + 2, M_TM1637BUF, M_WAITOK | M_ZERO);
