@@ -43,6 +43,8 @@ Compile and install the kernel driver:
 % sudo make install
 ```
 
+### With FDT-overlays
+
 Compile and install a fdt overlays You need it for declare `tm1637` device.
 Choose a sample of overlay source suits your platform best and copy it
 with extension ```.dtso```.
@@ -59,7 +61,31 @@ Append an overlay to "/boot/loader.conf" and reboot:
 fdt_overlays="sun8i-h3-sid,sun8i-h3-ths<b>,sun8i-h3-tm1637-gpio</b>"
 </code></pre>
 
-Now You can load the module:
+### With hints
+
+If Your platform is not FDT capable or You just want to, You can
+declare the device in a file ***/boot/device.hints*** instead of editing
+and then loading a FDT-overlay.
+
+It is simple, e.g. for a 4 digits clock display wired to ```scl```:26,
+```sda```:29 pins just add to the file following variables:
+```ini
+hint.tm1637.0.at="gpiobus0"
+hint.tm1637.0.compatible="tm1637-4-colon"
+hint.tm1637.0.pin_list="26 29"
+#hint.tm1637.0.scl="0"
+#hint.tm1637.0.sda="1"
+```
+Last two commented out variables declare the default order for the
+```scl``` and ```sda``` pins in the ```pin_list``` pin numbers sequence.
+Uncomment them and change their values if it needed to change.
+For now the driver support next types of ```tm1637``` displays:
+- tm1637-4-colon;
+- tm1637-6-decimals.
+Just ordered a ```tm1637-4-decimals```specimen for third option..
+
+In both cases, for FDT overlays or hints, your device declaration changes
+will only be active after a system reboot. Then You can load the module:
 ```shell
 % kldload tm1637
 ```

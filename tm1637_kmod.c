@@ -26,7 +26,7 @@
  * SUCH DAMAGE.
  */
 
-#define FDT
+//#define FDT
 
 #include <sys/types.h>
 #include <sys/module.h>
@@ -43,9 +43,8 @@
 #include <sys/gpio.h>
 
 #include <dev/iicbus/iiconf.h>
-
-//#include "iicbb_if.h"
-
+#include <dev/ofw/ofw_bus.h>
+#include <dev/ofw/ofw_bus_subr.h>
 #include <dev/gpio/gpiobusvar.h>
 #include <dev/fdt/fdt_pinctrl.h>
 
@@ -98,8 +97,8 @@ SYSCTL_INT(_hw_i2c, OID_AUTO, iicbb_debug, CTLFLAG_RWTUN,
 #define	DEFAULT_SCL_LOW_TIMEOUT	(25 * 1000)
 
 static const u_char char_code[10] = {
-	CHR_0, CHR_1, CHR_2, CHR_3, CHR_4,
-	CHR_5, CHR_6, CHR_7, CHR_8, CHR_9
+    CHR_0, CHR_1, CHR_2, CHR_3, CHR_4,
+    CHR_5, CHR_6, CHR_7, CHR_8, CHR_9
 };
 
 /* Buffer struct */
@@ -107,33 +106,37 @@ MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 display");
 MALLOC_DEFINE(M_TM1637COD, "tm1637codes", "Masks array for tm1637 display");
 
 struct tm1637_buf_t {
-    size_t			 number;
-    size_t			 length;
-    uint8_t			*codes;
-    unsigned char		*text;
+    size_t				 number;
+    size_t				 length;
+    uint8_t				*codes;
+    unsigned char			*text;
+};
+
+struct tm1637_dispinfo {
+    const uint8_t			 number;
+    const char				*descr;
 };
 
 struct tm1637_softc {
-	device_t		 dev;
-	phandle_t		 node;
-	gpio_pin_t		 sclpin;
-	gpio_pin_t		 sdapin;
-	uint8_t			 brightness;
-	bool			 on;
-	bool			 needupdate;
-	bool			 inuse;
-	struct tm1637_buf_t	 buffer;
-	u_int			 udelay; /* signal toggle delay in usec */
-	u_int			 scl_low_timeout;
-	struct mtx		 lock;
-	struct cdev		*cdev;
+    device_t				 dev;
+    phandle_t				 node;
+    gpio_pin_t				 sclpin;
+    gpio_pin_t				 sdapin;
+    uint8_t				 brightness;
+    bool				 on;
+    bool				 needupdate;
+    bool				 inuse;
+    struct tm1637_buf_t			 buffer;
+    u_int				 udelay; /* signal toggle delay in usec */
+    u_int				 scl_low_timeout;
+    struct mtx				 lock;
+    const struct tm1637_dispinfo	*info;
+    struct cdev				*cdev;
 };
 
 static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
-
-static int tm1637_fdt_get_params(struct tm1637_softc*);
 
 static void gpiobb_setsda(device_t, int);
 static void gpiobb_setscl(device_t, int);
@@ -144,7 +147,8 @@ static int gpiobb_getack(device_t);
 static int gpiobb_start(device_t);
 static int gpiobb_stop(device_t);
 
-static void tm1637_set_speed(struct tm1637_softc*, u_int);
+static void tm1637_set_speed(struct tm1637_softc *, u_int);
+static void tm1637_sysctl_register(struct tm1637_softc *);
 
 static int digit_convert(u_char *, const unsigned char);
 static int buffer_convert(struct tm1637_softc *);
@@ -159,27 +163,28 @@ static void tm1637_display_on(struct tm1637_softc*);
 static void tm1637_display_off(struct tm1637_softc*);
 static void tm1637_set_brightness(struct tm1637_softc*, uint8_t);
 
-#ifdef FDT
-#include <dev/ofw/ofw_bus.h>
-//#include <dev/ofw/ofw_bus_subr.h>
-
-static struct ofw_compat_data compat_data[] = {
-	{"tm1637",  true},
-	{NULL,     false}
+static const struct tm1637_dispinfo tm1637_disp_infos[] = {
+    { 4, "TM1637 4 digits 7 segments display with colon" },
+    { 6, "TM1637 6 digits 7 segments display with decimals" },
 };
 
-OFWBUS_PNP_INFO(compat_data);
-SIMPLEBUS_PNP_INFO(compat_data);
+static const struct ofw_compat_data tm1637_compat_data[] = {
+    {"tm1637-4-colon",		(uintptr_t)&tm1637_disp_infos[0]},
+    {"tm1637-6-dots",		(uintptr_t)&tm1637_disp_infos[1]},
+    {"tm1637",			(uintptr_t)&tm1637_disp_infos[0]},
+    {NULL,			(uintptr_t)NULL}
+};
 
-#endif
+OFWBUS_PNP_INFO(tm1637_compat_data);
+SIMPLEBUS_PNP_INFO(tm1637_compat_data);
 
 static device_method_t tm1637_methods[] = {
-	/* Device interface */
-	DEVMETHOD(device_probe,		tm1637_probe),
-	DEVMETHOD(device_attach,	tm1637_attach),
-	DEVMETHOD(device_detach,	tm1637_detach),
+    /* Device interface */
+    DEVMETHOD(device_probe,	tm1637_probe),
+    DEVMETHOD(device_attach,	tm1637_attach),
+    DEVMETHOD(device_detach,	tm1637_detach),
 
-	DEVMETHOD_END
+    DEVMETHOD_END
 };
 
 static devclass_t tm1637_devclass;
@@ -190,9 +195,9 @@ DEFINE_CLASS_0(tm1637, tm1637_driver, tm1637_methods, sizeof(struct tm1637_softc
 DRIVER_MODULE(tm1637, simplebus, tm1637_driver, tm1637_devclass, NULL, NULL);
 #endif
 
-//DRIVER_MODULE(tm1637, gpiobus, tm1637_driver, tm1637_devclass, NULL, NULL);
+DRIVER_MODULE(tm1637, gpiobus, tm1637_driver, tm1637_devclass, NULL, NULL);
 MODULE_VERSION(tm1637, 1);
-//MODULE_DEPEND(tm1637, gpiobus, 1, 1, 1);
+MODULE_DEPEND(tm1637, gpiobus, 1, 1, 1);
 
 #ifdef FDT
 
@@ -224,29 +229,6 @@ tm1637_fdt_get_params(struct tm1637_softc *sc)
 	if (bootverbose)
 	    device_printf(sc->dev,
 			"Acquired brightness level: %u %s\n", sc->brightness, "by default");
-    }
-
-    param_found = OF_getencprop(sc->node, "number-of-digits", &param_cell, sizeof(param_cell));
-
-    if (param_found > 0) {
-	param = (uint32_t)param_cell;
-
-	if ((param != 4) && (param != 6))  {
-	    device_printf(sc->dev,
-			"could not acquire correct number of digits from DTS\n");
-	    return (EINVAL);
-	}
-
-	sc->buffer.number = (size_t)param;
-	if (bootverbose)
-	    device_printf(sc->dev,
-			"Acquired number of digits: %u %s\n", sc->buffer.number, "from DTS");
-    }
-    else {
-	sc->buffer.number = 4;
-	if (bootverbose)
-	    device_printf(sc->dev,
-			"Acquired number of digits: %u %s\n", sc->buffer.number, "by default");
     }
 
     return (0);
@@ -949,13 +931,13 @@ tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
     t = clock.tm_hour / 10;
     sc->buffer.codes[0] = char_code[t&0x0f];
     t = clock.tm_hour % 10;
-    // Four clock digits
+    /* Four digits clock */
     if (sc->buffer.number == 4) {
 	sc->buffer.codes[1] = char_code[t];
 	t = clock.tm_min / 10;
 	sc->buffer.codes[2] = char_code[t&0x0f];
     }
-    else
+    else // Six digits decimals
     if (sc->buffer.number == 6) {
 	sc->buffer.codes[5] = char_code[t];
 	t = clock.tm_min / 10;
@@ -964,7 +946,7 @@ tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
     t = clock.tm_min % 10;
     sc->buffer.codes[3] = char_code[t];
 
-    // Clockpoint
+    /* Clockpoint */
     if (clock.tm_colon)
 	sc->buffer.codes[TM1637_COLON_POSITION - 1] |= 0x80;
 
@@ -1061,36 +1043,35 @@ static struct cdevsw tm1637_cdevsw = {
 static int
 tm1637_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag, struct thread *td)
 {
+    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
     int error = 0;
 
-    struct tm1637_softc *sc = cdev->si_drv1; // Stored here on tm1637_attach()
+    switch (cmd) {
+    case TM1637IOC_CLEAR:
+	tm1637_clear_display(sc);
+	break;
+    case TM1637IOC_OFF:
+	tm1637_display_off(sc);
+	break;
+    case TM1637IOC_ON:
+	tm1637_display_on(sc);
+	break;
+    case TM1637IOC_SET_BRIGHTNESS:
+	tm1637_set_brightness(sc, *(uint8_t*)data);
+	break;
+    case TM1637IOC_SET_CLOCKPOINT:
+	if(sc->on != 0)
+	    tm1637_display_clockpoint(sc, *(bool*)data);
+	break;
+    case TM1637IOC_SET_CLOCK:
+	tm1637_set_clock(sc, *(struct tm1637_clock_t*)data);
+	break;
+    default:
+	error = ENOTTY;
+	break;
+    }
 
-	switch (cmd) {
-	case TM1637IOC_CLEAR:
-		tm1637_clear_display(sc);
-		break;
-	case TM1637IOC_OFF:
-		tm1637_display_off(sc);
-		break;
-	case TM1637IOC_ON:
-		tm1637_display_on(sc);
-		break;
-	case TM1637IOC_SET_BRIGHTNESS:
-		tm1637_set_brightness(sc, *(uint8_t*)data);
-		break;
-	case TM1637IOC_SET_CLOCKPOINT:
-		if(sc->on != 0)
-			tm1637_display_clockpoint(sc, *(bool*)data);
-		break;
-	case TM1637IOC_SET_CLOCK:
-		tm1637_set_clock(sc, *(struct tm1637_clock_t*)data);
-		break;
-	default:
-		error = ENOTTY;
-		break;
-	}
-
-	return (error);
+    return (error);
 }
 
 static int
@@ -1147,140 +1128,193 @@ tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 	return (EINVAL);
 }
 
+static const struct tm1637_dispinfo *
+tm1637_find_dispinfo(device_t dev)
+{
+    const struct ofw_compat_data *cdata;
+    const char *disptype;
+
+#ifdef FDT
+    const struct tm1637_dispinfo *info;
+
+    if (ofw_bus_status_okay(dev)) {
+	info = (struct tm1637_dispinfo*)
+		ofw_bus_search_compatible(dev, tm1637_compat_data)->ocd_data;
+	if (info != NULL)
+	    return (info);
+    }
+#endif
+
+    /* For hinted devices, we must be told the compatible string. */
+    disptype = NULL;
+    if (resource_string_value(device_get_name(dev), device_get_unit(dev),
+		"compatible", &disptype) == 0) {
+
+	/*
+	 * Loop through the ofw compat data comparing the hinted chip type to
+	 * the compat strings.
+	 */
+	for (cdata = tm1637_compat_data; cdata->ocd_str != NULL; ++cdata) {
+	    if (strcmp(disptype, cdata->ocd_str) == 0)
+		break;
+	}
+
+	return ((const struct tm1637_dispinfo *)cdata->ocd_data);
+    }
+
+    return (NULL);
+}
+
 static int
 tm1637_probe(device_t dev)
 {
-	int rv = BUS_PROBE_NOWILDCARD;
+    struct tm1637_softc *sc = device_get_softc(dev);
 
+    sc->info = tm1637_find_dispinfo(dev);
+    if (sc->info != NULL) {
+	device_set_desc(dev, sc->info->descr);
 #ifdef FDT
-	if (ofw_bus_status_okay(dev) &&
-	    ofw_bus_search_compatible(dev, compat_data)->ocd_data)
-		rv = BUS_PROBE_DEFAULT;
+	return (BUS_PROBE_DEFAULT);
+#else
+	return (BUS_PROBE_NOWILDCARD);
 #endif
+    }
 
-	device_set_desc(dev, "TM1637 N Digits 7 Segment Display");
-
-	return (rv);
+    return (ENXIO);
 }
 
 static int
 tm1637_detach(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
+    struct tm1637_softc *sc = device_get_softc(dev);
 
-	tm1637_display_off(sc);
+    /* Turn a display off */
+    tm1637_display_off(sc);
 
-	if (sc->cdev != NULL)
-		destroy_dev(sc->cdev);
+    /* Remove a device from devfs */
+    if (sc->cdev != NULL)
+	destroy_dev(sc->cdev);
 
-	if (sc->sclpin != NULL)
-		gpio_pin_release(sc->sclpin);
+    /* Release sda and scl pins of the device */
+    if (sc->sclpin != NULL)
+	gpio_pin_release(sc->sclpin);
+    if (sc->sdapin != NULL)
+	gpio_pin_release(sc->sdapin);
 
-	if (sc->sdapin != NULL)
-		gpio_pin_release(sc->sdapin);
+    /* Free buffers dynamic length arrays */
+    free(sc->buffer.text, M_TM1637BUF);
+    free(sc->buffer.codes, M_TM1637COD);
 
-	free(sc->buffer.text, M_TM1637BUF);
-	free(sc->buffer.codes, M_TM1637COD);
+    TM1637_LOCK_DESTROY(sc);
 
-	TM1637_LOCK_DESTROY(sc);
-
-	return (0);
+    return (0);
 }
 
 static int
 tm1637_attach(device_t dev)
 {
-	struct tm1637_softc		*sc;
-	struct sysctl_ctx_list		*ctx;
-	struct sysctl_oid		*tree;
-	int err;
+    struct tm1637_softc *sc = device_get_softc(dev);
+    int unit;
+    int err;
 
-	sc = device_get_softc(dev);
-	ctx = device_get_sysctl_ctx(dev);
-	tree = device_get_sysctl_tree(dev);
+    sc->dev = dev;
+    sc->node = ofw_bus_get_node(dev);
+    sc->buffer.number = sc->info->number;
+    sc->scl_low_timeout = DEFAULT_SCL_LOW_TIMEOUT;
 
-	sc->dev = dev;
-	sc->node = ofw_bus_get_node(dev);
-	int unit = device_get_unit (dev);
-
-	/* Acquire our gpio pins. */
-	err = tm1637_setup_hinted_pins(sc);
+    /* Acquire gpio pins from hints first */
+    err = tm1637_setup_hinted_pins(sc);
 
 #ifdef FDT
-	if (err != 0)
-		err = tm1637_setup_fdt_pins(sc);
+    /* If no pins found from hints
+     * acquire them from FDT
+     */
+    if (err != 0)
+	err = tm1637_setup_fdt_pins(sc);
 #endif
 
-	if (err != 0) {
-		device_printf(sc->dev, "no pins configured\n");
-		return (ENXIO);
-	}
+    /* If still no luck print a message */
+    if (err != 0) {
+	device_printf(sc->dev, "no pins configured\n");
+	return (ENXIO);
+    }
 
 #ifdef FDT
-	/* Set properties */
-	if ((err = tm1637_fdt_get_params(sc)) != 0)
-		return (err);
+    /* Get other properties from FDT */
+    if ((err = tm1637_fdt_get_params(sc)) != 0)
+	return (err);
 #endif
 
-	/* Say what we came up with for pin config. */
-	device_printf(dev, "Digits: %u, SCL pin: %s:%d, SDA pin: %s:%d\n",
-	    sc->buffer.number,
-	    device_get_nameunit(GPIO_GET_BUS(sc->sclpin->dev)), sc->sclpin->pin,
-	    device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin);
+    /* Say what we came up with for pin config. */
+    device_printf(dev, "SCL pin: %s:%d, SDA pin: %s:%d\n",
+		device_get_nameunit(GPIO_GET_BUS(sc->sclpin->dev)), sc->sclpin->pin,
+		device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin );
 
-	sc->buffer.codes = malloc(sc->buffer.number, M_TM1637COD, M_WAITOK | M_ZERO);
-	sc->buffer.text = malloc(sc->buffer.number + 2, M_TM1637BUF, M_WAITOK | M_ZERO);
+    sc->buffer.codes = malloc(sc->buffer.number, M_TM1637COD, M_WAITOK | M_ZERO);
+    sc->buffer.text = malloc(sc->buffer.number + 2, M_TM1637BUF, M_WAITOK | M_ZERO);
 
-	/* Create the tm1637 cdev. */
-	err = make_dev_p(MAKEDEV_CHECKNAME | MAKEDEV_WAITOK,
-	    &sc->cdev,
-	    &tm1637_cdevsw,
-	    0,
-	    UID_ROOT,
-	    GID_WHEEL,
-	    0600,
-	    "%s/%d", TM1637_CDEV_NAME, unit);
+    /* Create the tm1637 cdev. */
+    unit = device_get_unit (dev);
+    err = make_dev_p(MAKEDEV_CHECKNAME | MAKEDEV_WAITOK,
+	&sc->cdev,
+	&tm1637_cdevsw,
+	0,
+	UID_ROOT,
+	GID_WHEEL,
+	0600,
+	"%s/%d", TM1637_CDEV_NAME, unit);
 
-	if (err != 0) {
-		device_printf(dev, "Unable to create '%s/%d' cdev\n", TM1637_CDEV_NAME, unit);
-		tm1637_detach(dev);
-		return (err);
-	}
+    if (err != 0) {
+	device_printf(dev, "Unable to create '%s/%d' cdev\n", TM1637_CDEV_NAME, unit);
+	tm1637_detach(dev);
+	return (err);
+    }
 
-	sc->cdev->si_drv1 = sc;
-	tm1637_set_speed(sc, TM1637_BUSFREQ);
+    sc->cdev->si_drv1 = sc;
+    TM1637_LOCK_INIT(sc);
 
-	sc->scl_low_timeout = DEFAULT_SCL_LOW_TIMEOUT;
+    tm1637_set_speed(sc, TM1637_BUSFREQ);
+    tm1637_sysctl_register(sc);
+    tm1637_clear_display(sc);
+    tm1637_display_on(sc);
 
-	/* Create sysctl variables and set their handlers */
-	SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	    "delay", CTLFLAG_RD, &sc->udelay,
-	    0, "Signal change delay controlled by bus frequency, microseconds");
+    return (0);
+}
 
-	SYSCTL_ADD_UINT(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	    "digits", CTLFLAG_RD, &sc->buffer.number,
-	    0, "Number of display digits");
+/* Create sysctl variables and set their handlers */
+static void
+tm1637_sysctl_register(struct tm1637_softc *sc)
+{
+    struct sysctl_ctx_list	*ctx;
+    struct sysctl_oid		*tree_node;
+    struct sysctl_oid_list	*tree;
 
-	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	    "brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,
-	    &tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
+    ctx = device_get_sysctl_ctx(sc->dev);
+    tree_node = device_get_sysctl_tree(sc->dev);
+    tree = SYSCTL_CHILDREN(tree_node);
 
-	SYSCTL_ADD_PROC(ctx, SYSCTL_CHILDREN(tree), OID_AUTO,
-	    "on", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,
-	    &tm1637_set_on_sysctl, "CU", "display is on or off");
+    /* Create sysctl variables and set their handlers */
+    SYSCTL_ADD_UINT(ctx, tree, OID_AUTO,
+	"delay", CTLFLAG_RD, &sc->udelay,
+	0, "Signal change delay controlled by bus frequency, microseconds");
 
-	TM1637_LOCK_INIT(sc);
+    SYSCTL_ADD_UINT(ctx, tree, OID_AUTO,
+	"digits", CTLFLAG_RD, &sc->buffer.number,
+	0, "Number of display digits");
 
-	tm1637_clear_display(sc);
-	tm1637_display_on(sc);
+    SYSCTL_ADD_PROC(ctx, tree, OID_AUTO,
+	"brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,
+	&tm1637_brightness_sysctl, "CU", "brightness 0..7. 0 is a darkest one");
 
-	return (0);
+    SYSCTL_ADD_PROC(ctx, tree, OID_AUTO,
+	"on", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,
+	&tm1637_set_on_sysctl, "CU", "display is on or off");
 }
 
 /* Set bus speed in Hz */
 static void
 tm1637_set_speed(struct tm1637_softc *sc, u_int busfreq)
 {
-	u_int period = 1000000 / 2 / busfreq;	/* Hz -> uS */
-	sc->udelay = MAX(period, 1);
+    u_int period = 1000000 / 2 / busfreq;	/* Hz -> uS */
+    sc->udelay = MAX(period, 1);
 }
