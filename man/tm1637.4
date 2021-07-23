@@ -3,68 +3,47 @@
 .Os
 .Sh NAME
 .Nm tm1637
-.Nd driver for the TM1637 4 Digit 7 Segment Display
+.Nd driver for the TM1637
+.Pa N Ns
+-digits 7-segment display
 .Sh SYNOPSIS
-To compile this driver as a kernel loadable module with fdt-overlays
-edit a fdt-overlay for Your platform to set right pins the display
-is connected. Then chenge a current directory to the top of sources codes
-of the driver and type:
-.Bd -literal -offset indent
-make
-sudo make install
-.Ed
+.Cd "kldload tm1637"
+.Sh HARDWARE
+The current version of the
+.Nm
+driver supports devices with one of the following
+compatible strings :
 .Pp
-To activate the overlay at boot time add its name to
-.Va fdt_overlays
-in
-.Xr loader.conf 5 :
-.Bd -literal -offset indent
-fdt_overlays="<other_overlays>,tm1637-gpio-rpi2"
-.Ed
-or
-.Bd -literal -offset indent
-fdt_overlays="<other_overlays>,sun8i-h3-tm1637-gpio"
-.Ed
-.Pp
-and to load the driver as a module at boot time
-place following lines in same
-.Xr loader.conf 5 :
-.Bd -literal -offset indent
-tm1637_load="YES"
-.Ed
-.Pp
+.Bl -bullet -compact
+.It
+tm1637-4-colon
+.It
+tm1637-6-dots
+.El
 .Sh DESCRIPTION
 The
 .Nm
-is a low-cost 4-digit 7-segment display module. It can display up to 4 digits
-and a colon between 2nd and 3rd ones. Because of the colon it is good for
-displaying time. For a connecting to
+is a low-cost 4(6)-digits 7-segment display module. It can display up to 4
+(or 6) digits and a colon in the middle of the display or decimal dots after
+each ones. Different variants of that types of the displays are used to display
+numerical information or time. For a connecting to
 .Xr gpiobus 4
-it uses two wires DIO and CLK along with power (either +3V or +5V) and
-GND. The device uses its own protocol for data exchange and does not comply
+it uses two wires CLK (scl) and DIO (sda) along with power (either +3V or +5V)
+and GND. The device uses its own protocol for data exchange and does not comply
 with the
 .Xr iic 4
 standard.
-.Pp
-On a
-.Xr FDT 4
-based system the following properties must be set:
-.Bl -tag -width ".Va compatible"
-.It Va compatible
-Must always be set to "tm1637".
-.El
 .Sh SYSCTL VARIABLES
 The following variables are available to control the display via
 .Xr sysctl 8 :
-.Bd -literal
-dev.tm1637.0.raw_mode: 0
+.Bd -literal -offset indent
 dev.tm1637.0.on: 1
 dev.tm1637.0.brightness: 1
 dev.tm1637.0.%parent: simplebus0
-dev.tm1637.0.%pnpinfo: name=tm1637@0 compat=tm1637
+dev.tm1637.0.%pnpinfo: name=tm1637@0 compat=tm1637-4-colon
 dev.tm1637.0.%location: 
 dev.tm1637.0.%driver: tm1637
-dev.tm1637.0.%desc: TM1637 4 Digit 7 Segment Display
+dev.tm1637.0.%desc: TM1637 4 digit 7 segment display with colon
 dev.tm1637.%parent: 
 .Ed
 .Bl -tag -width ".Va dev.tm1537"
@@ -75,15 +54,21 @@ to the display when it is turned on. Any user can change this value.
 .It Va dev.tm1637.<unit>.brightness
 The display brightness level, 0=darkest, 7=brightest. Any user can change this
 value.
-.It Va dev.tm1637.<unit>.raw_mode
-Data input mode, 0=human readable, 1=raw. In the human readable input mode
-the device will interpret the data as a string up to 5 characters long ended up
-by "\\n", by example: "12:34\\n". In the raw input mode the data will be
-interpreted as bytes of segments by one to each digit (A start position can be
-set before writing to the device in this mode).
+.Sh NOTES
+If Your platform is not FDT capable You can declare a display with
+.Xr device.hints 5
+file. For example, for a 4 digits display with colon coonected to pins
+scl:26 and sda:29, add following strings to
+.Pa /boot/device.hints :
+.Bd -literal -offset indent
+hint.tm1637.0.at="gpiobus0"
+hint.tm1637.0.compatible="tm1637-4-colon"
+hint.tm1637.0.pin_list="26 29"
+hint.tm1637.0.scl="0"
+hint.tm1637.0.sda="1"
+.Ed
 .Sh SEE ALSO
-.Xr fdt 4 ,
-.Xr sysctl 8
+.Xr fdt 4 , Xr sysctl 8 , Xr device.hints 5
 .Sh AUTHORS
 .An -nosplit
 The
