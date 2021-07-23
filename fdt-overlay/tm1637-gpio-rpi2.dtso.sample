@@ -15,7 +15,7 @@
 
 &{/soc} {
     tm1637@0 {
-	compatible = "tm1637";
+	compatible = "tm1637-4-colon";
 	pinctrl-names = "default";
 	pinctrl-0 = <&tm1637_pins>;
 	gpios = <&gpio 20 0 /* scl */

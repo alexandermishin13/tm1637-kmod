@@ -81,8 +81,8 @@ Last two commented out variables declare the default order for the
 Uncomment them and change their values if it needed to change.
 For now the driver support next types of ```tm1637``` displays:
 - tm1637-4-colon;
-- tm1637-6-decimals.
-Just ordered a ```tm1637-4-decimals```specimen for third option..
+- tm1637-6-dots.
+Just ordered a ```tm1637-4-dots```specimen for third option.
 
 In both cases, for FDT overlays or hints, your device declaration changes
 will only be active after a system reboot. Then You can load the module:
