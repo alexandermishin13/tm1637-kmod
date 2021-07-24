@@ -29,9 +29,6 @@
 	/* From 0 to 7. 0 is a darkest */
 	default-brightness-level = <1>;
 
-	/* Number of display digits. Defaults is 4 */
-	//number-of-digits = <6>;
-
 	status = "okay";
     };
 };
