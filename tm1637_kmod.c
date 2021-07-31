@@ -56,7 +56,7 @@
 #define TM1637_SCL_IDX		0
 #define TM1637_SDA_IDX		1
 #define TM1637_MIN_PINS		2
-#define TM1637_BUSFREQ		450000
+#define TM1637_BUSFREQ		200000
 
 #define TM1637_ADDRESS_AUTO	0x40
 #define TM1637_ADDRESS_FIXED	0x44
@@ -642,35 +642,35 @@ gpiobb_sendbit(device_t dev, int bit)
 static int
 gpiobb_start(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
+    struct tm1637_softc *sc = device_get_softc(dev);
 
-	I2C_DEBUG(printf("<<"));
+    I2C_DEBUG(printf("<<"));
 
-	/* SCL must be high on the idle bus. */
-	if (gpiobb_waitforscl(dev) != 0) {
-		I2C_DEBUG(printf("C!\n"));
-		return (IIC_EBUSERR);
-	}
+    /* SCL must be high on the idle bus. */
+    if (gpiobb_waitforscl(dev) != 0) {
+	I2C_DEBUG(printf("C!\n"));
+	return (IIC_EBUSERR);
+    }
 
-	/*
-	 * SDA must be high after the earlier stop condition or the end
-	 * of Ack/NoAck pulse.
-	 */
-	if (!GPIOBB_GETSDA(dev)) {
-		I2C_DEBUG(printf("D!\n"));
-		return (IIC_EBUSERR);
-	}
+    /*
+     * SDA must be high after the earlier stop condition or the end
+     * of Ack/NoAck pulse.
+     */
+    if (!GPIOBB_GETSDA(dev)) {
+	I2C_DEBUG(printf("D!\n"));
+	return (IIC_EBUSERR);
+    }
 
-	/* Start: SDA high->low. */
-	GPIOBB_SETSDA(dev, 0);
+    /* Start: SDA high->low. */
+    GPIOBB_SETSDA(dev, 0);
 
-	/* Wait the second half of the SCL high phase. */
-	DELAY((sc->udelay + 1) / 2);
+    /* Wait the second half of the SCL high phase. */
+    DELAY((sc->udelay + 1) / 2);
 
-	/* Pull SCL low to keep the bus reserved. */
-	gpiobb_clockout(dev);
+    /* Pull SCL low to keep the bus reserved. */
+    gpiobb_clockout(dev);
 
-	return (0);
+    return (0);
 }
 
 /*
@@ -679,53 +679,55 @@ gpiobb_start(device_t dev)
 static int
 gpiobb_stop(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-	int err = 0;
+    struct tm1637_softc *sc = device_get_softc(dev);
+    int err = 0;
 
-	/*
-	 * Stop: SDA goes from low to high in the middle of the SCL high phase.
-	 */
-	err = gpiobb_clockin(dev, 0);
-	if (err != 0)
-		return (err);
-	DELAY((sc->udelay + 1) / 2);
-	GPIOBB_SETSDA(dev, 1);
-	DELAY((sc->udelay + 1) / 2);
-
-	I2C_DEBUG(printf("%s>>", err != 0 ? "!" : ""));
-	I2C_DEBUG(printf("\n"));
+    /*
+     * Stop: SDA goes from low to high in the middle of the SCL high phase.
+     */
+    err = gpiobb_clockin(dev, 0);
+    if (err != 0)
 	return (err);
+    DELAY((sc->udelay + 1) / 2);
+    GPIOBB_SETSDA(dev, 1);
+    DELAY((sc->udelay + 1) / 2);
+
+    I2C_DEBUG(printf("%s>>", err != 0 ? "!" : ""));
+    I2C_DEBUG(printf("\n"));
+
+    return (err);
 }
 
 static int
 gpiobb_getack(device_t dev)
 {
-	struct tm1637_softc *sc = device_get_softc(dev);
-	int noack, err;
-	int t;
+    struct tm1637_softc *sc = device_get_softc(dev);
+    int noack, err;
+    int t;
 
-	/* Release SDA so that the slave can drive it. */
-	err = gpiobb_clockin(dev, 1);
-	if (err != 0) {
-		I2C_DEBUG(printf("! "));
-		return (err);
-	}
+    /* Release SDA so that the slave can drive it. */
+    err = gpiobb_clockin(dev, 1);
+    if (err != 0) {
+	I2C_DEBUG(printf("! "));
+	return (err);
+    }
 
-	/* Sample SDA until ACK (low) or udelay runs out. */
-	for (t = 0; t < sc->udelay; t++) {
-		noack = GPIOBB_GETSDA(dev);
-		if (!noack)
-			break;
-		DELAY(1);
-	}
+    /* Sample SDA until ACK (low) or udelay runs out. */
+    for (t = 0; t < sc->udelay; t++) {
+	noack = GPIOBB_GETSDA(dev);
+	if (!noack)
+	    break;
+	DELAY(1);
+    }
 
 #ifdef I2C_LIKE
-	DELAY(sc->udelay - t);
+    DELAY(sc->udelay - t);
 #endif
-	gpiobb_clockout(dev);
+    gpiobb_clockout(dev);
 
-	I2C_DEBUG(printf("%c ", noack ? '-' : '+'));
-	return (noack ? IIC_ENOACK : 0);
+    I2C_DEBUG(printf("%c ", noack ? '-' : '+'));
+
+    return (noack ? IIC_ENOACK : 0);
 }
 
 /*
@@ -734,18 +736,18 @@ gpiobb_getack(device_t dev)
 static int
 tm1637_gpio_sendbyte(device_t dev, uint8_t data)
 {
-	int err, i;
+    int err, i;
 
-	// LSB first
-	for(i=0; i<=7; i++) {
-		err = gpiobb_sendbit(dev, (data & (1 << i)) != 0);
-		if (err != 0) {
-			I2C_DEBUG(printf("w!"));
-			return (err);
-		}
+    // LSB first
+    for(i=0; i<=7; i++) {
+	err = gpiobb_sendbit(dev, (data & (1 << i)) != 0);
+	if (err != 0) {
+	    I2C_DEBUG(printf("w!"));
+	    return (err);
 	}
-	I2C_DEBUG(printf("w%02x", data));
-	return (gpiobb_getack(dev));
+    }
+    I2C_DEBUG(printf("w%02x", data));
+    return (gpiobb_getack(dev));
 }
 
 /*
@@ -755,18 +757,18 @@ tm1637_gpio_sendbyte(device_t dev, uint8_t data)
 static int
 tm1637_send_command(struct tm1637_softc *sc, uint8_t cmd)
 {
-	device_t dev = sc->dev;
-	int err;
+    device_t dev = sc->dev;
+    int err;
 
-	TM1637_LOCK(sc);
+    TM1637_LOCK(sc);
 
-	gpiobb_start(dev);
-	err = tm1637_gpio_sendbyte(dev, cmd);
-	gpiobb_stop(dev);
+    gpiobb_start(dev);
+    err = tm1637_gpio_sendbyte(dev, cmd);
+    gpiobb_stop(dev);
 
-	TM1637_UNLOCK(sc);
+    TM1637_UNLOCK(sc);
 
-	return err;
+    return err;
 }
 
 /*
@@ -834,12 +836,12 @@ tm1637_send_data(struct tm1637_softc *sc, size_t pos, const size_t stop)
 static void
 tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 {
-	if (clockpoint)
-		sc->buffer.codes[TM1637_COLON_POSITION - 1] |= 0x80;
-	else
-		sc->buffer.codes[TM1637_COLON_POSITION - 1] &= 0x7f;
+    if (clockpoint)
+	sc->buffer.codes[TM1637_COLON_POSITION - 1] |= 0x80;
+    else
+	sc->buffer.codes[TM1637_COLON_POSITION - 1] &= 0x7f;
 
-	tm1637_send_data1(sc, TM1637_COLON_POSITION - 1);
+    tm1637_send_data1(sc, TM1637_COLON_POSITION - 1);
 }
 
 /*
@@ -848,14 +850,14 @@ tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 static void
 tm1637_update_display(struct tm1637_softc *sc)
 {
-	if(sc->on) {
-		tm1637_send_data(sc, 0, sc->buffer.number);
-		/* Clear the flag if it is set */
-		if(sc->needupdate)
-			sc->needupdate = false;
-	}
-	else
-		sc->needupdate = true; /* Do nothing but set flag */
+    if(sc->on) {
+	tm1637_send_data(sc, 0, sc->buffer.number);
+	/* Clear the flag if it is set */
+	if(sc->needupdate)
+	    sc->needupdate = false;
+    }
+    else
+	sc->needupdate = true; /* Do nothing but set flag */
 }
 
 /*
@@ -864,17 +866,17 @@ tm1637_update_display(struct tm1637_softc *sc)
 static void
 tm1637_clear_display(struct tm1637_softc *sc)
 {
-	size_t position = sc->buffer.number;
+    size_t position = sc->buffer.number;
 
-	/* Display all blanks */
-	while(position--)
+    /* Display all blanks */
+    while(position--)
 	sc->buffer.codes[position] = CHR_SPACE;
 
-	/* If display is off right now then mark it for update when it is on */
-	if(sc->on)
-		tm1637_send_data(sc, 0, sc->buffer.number);
-	else
-		sc->needupdate = true;
+    /* If display is off right now then mark it for update when it is on */
+    if(sc->on)
+	tm1637_send_data(sc, 0, sc->buffer.number);
+    else
+	sc->needupdate = true;
 }
 
 /*
@@ -883,12 +885,12 @@ tm1637_clear_display(struct tm1637_softc *sc)
 static void
 tm1637_display_on(struct tm1637_softc *sc)
 {
-	if(!sc->on) {
-		sc->on = true;
-		tm1637_send_data(sc, 0, sc->buffer.number);
-	}
-	/* Light the display anyway */
-	tm1637_send_command(sc, TM1637_DISPLAY_CTRL|sc->brightness);
+    if(!sc->on) {
+	sc->on = true;
+	tm1637_send_data(sc, 0, sc->buffer.number);
+    }
+    /* Light the display anyway */
+    tm1637_send_command(sc, TM1637_DISPLAY_CTRL|sc->brightness);
 }
 
 /*
@@ -897,15 +899,14 @@ tm1637_display_on(struct tm1637_softc *sc)
 static void
 tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 {
-	/* If brightness is really changed */
-	if ((brightness != sc->brightness) &&
-	    (brightness <= BRIGHT_BRIGHTEST))
-	{
-		sc->brightness = brightness;
-		/* Only change variable if a display is not on */
-		if(sc->on != 0)
-			tm1637_send_command(sc, TM1637_DISPLAY_CTRL|brightness);
-	}
+    /* If brightness level is correct */
+    if (brightness <= BRIGHT_BRIGHTEST) {
+	/* Store a value as a current brightness now */
+	sc->brightness = brightness;
+	/* Do not send a command unless a display is already on */
+	if(sc->on)
+	    tm1637_send_command(sc, TM1637_DISPLAY_CTRL|brightness);
+    }
 }
 
 /*
@@ -914,12 +915,11 @@ tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
 static void
 tm1637_display_off(struct tm1637_softc *sc)
 {
-	/* Do nothing is always off */
-	if(sc->on)
-	{
-		sc->on = false;
-		tm1637_send_command(sc, TM1637_DISPLAY_OFF);
-	}
+    /* Do nothing is always off */
+    if(sc->on) {
+	sc->on = false;
+	tm1637_send_command(sc, TM1637_DISPLAY_OFF);
+    }
 }
 
 /*
@@ -1034,12 +1034,12 @@ static d_ioctl_t     tm1637_ioctl;
 
 /* Character device entry points */
 static struct cdevsw tm1637_cdevsw = {
-	.d_version = D_VERSION,
-	.d_open = tm1637_open,
-	.d_close = tm1637_close,
-	.d_write = tm1637_write,
-	.d_ioctl = tm1637_ioctl,
-	.d_name = TM1637_CDEV_NAME,
+    .d_version = D_VERSION,
+    .d_open = tm1637_open,
+    .d_close = tm1637_close,
+    .d_write = tm1637_write,
+    .d_ioctl = tm1637_ioctl,
+    .d_name = TM1637_CDEV_NAME,
 };
 
 static int
@@ -1082,10 +1082,10 @@ tm1637_open(struct cdev *cdev, int oflags __unused, int devtype __unused,
 {
 
 #ifdef DEBUG
-	uprintf("Opening device \"%s\".\n", tm1637_cdevsw.d_name);
+    uprintf("Opening device \"%s\".\n", tm1637_cdevsw.d_name);
 #endif
 
-	return (0);
+    return (0);
 }
 
 static int
@@ -1094,40 +1094,40 @@ tm1637_close(struct cdev *cdev __unused, int fflag __unused, int devtype __unuse
 {
 
 #ifdef DEBUG
-	uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);
+    uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);
 #endif
 
-	return (0);
+    return (0);
 }
 
 static int
 tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 {
-	int error;
+    int error;
 
-	struct tm1637_softc *sc = cdev->si_drv1;
+    struct tm1637_softc *sc = cdev->si_drv1;
 
-	size_t amount;
-	off_t uio_offset_saved;
+    size_t amount;
+    off_t uio_offset_saved;
 
-	amount = MIN(uio->uio_resid, (sc->buffer.number + 2));
-	uio_offset_saved = uio->uio_offset;
-	error = uiomove(sc->buffer.text, amount, uio);
-	uio->uio_offset = uio_offset_saved;
-	sc->buffer.length = amount;
+    amount = MIN(uio->uio_resid, (sc->buffer.number + 2));
+    uio_offset_saved = uio->uio_offset;
+    error = uiomove(sc->buffer.text, amount, uio);
+    uio->uio_offset = uio_offset_saved;
+    sc->buffer.length = amount;
 
-	if (error)
-		return (error);
+    if (error)
+	return (error);
 
-	if ((is_raw_command(sc)) == 0)
-		return (0);
+    if ((is_raw_command(sc)) == 0)
+	return (0);
 
-	if (buffer_convert(sc) == 0) {
-		tm1637_send_data(sc, 0, sc->buffer.number);
-		return (0);
-	}
+    if (buffer_convert(sc) == 0) {
+	tm1637_send_data(sc, 0, sc->buffer.number);
+	return (0);
+    }
 
-	return (EINVAL);
+    return (EINVAL);
 }
 
 static const struct tm1637_dispinfo *
