@@ -106,13 +106,15 @@ MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 display");
 MALLOC_DEFINE(M_TM1637COD, "tm1637codes", "Masks array for tm1637 display");
 
 struct tm1637_buf_t {
-    size_t				 number;
-    size_t				 length;
+    uint8_t				 start_pos;
+    uint8_t				 number;
+    uint8_t				 length;
     uint8_t				*codes;
     unsigned char			*text;
 };
 
 struct tm1637_dispinfo {
+    const uint8_t			 start_pos;
     const uint8_t			 number;
     const char				*descr;
 };
@@ -164,8 +166,8 @@ static void tm1637_display_off(struct tm1637_softc*);
 static void tm1637_set_brightness(struct tm1637_softc*, uint8_t);
 
 static const struct tm1637_dispinfo tm1637_disp_infos[] = {
-    { 4, "TM1637 4 digits 7 segments display with colon" },
-    { 6, "TM1637 6 digits 7 segments display with decimals" },
+    { 0, 4, "TM1637 4 digits 7 segments display with colon" },
+    { 2, 6, "TM1637 6 digits 7 segments display with decimals" },
 };
 
 static const struct ofw_compat_data tm1637_compat_data[] = {
@@ -371,7 +373,7 @@ buffer_convert(struct tm1637_softc *sc)
 
     if ((buf->number == 4) && (buf->length) == 5) {
 	i = 0;
-	p = 0;
+	p = buf->start_pos;;
 
 	do {
 	    if (i == 2) {
@@ -393,7 +395,7 @@ buffer_convert(struct tm1637_softc *sc)
     else
     if (buf->number == 6) {
 	i = buf->length;
-	p = 2;
+	p = buf->start_pos;
 
 	if (i <= 0)
 	    return (-1);
@@ -1220,6 +1222,7 @@ tm1637_attach(device_t dev)
     sc->dev = dev;
     sc->node = ofw_bus_get_node(dev);
     sc->buffer.number = sc->info->number;
+    sc->buffer.start_pos = sc->info->start_pos;
     sc->scl_low_timeout = DEFAULT_SCL_LOW_TIMEOUT;
 
     /* Acquire gpio pins from hints first */
@@ -1298,7 +1301,7 @@ tm1637_sysctl_register(struct tm1637_softc *sc)
 	"delay", CTLFLAG_RD, &sc->udelay,
 	0, "Signal change delay controlled by bus frequency, microseconds");
 
-    SYSCTL_ADD_UINT(ctx, tree, OID_AUTO,
+    SYSCTL_ADD_U8(ctx, tree, OID_AUTO,
 	"digits", CTLFLAG_RD, &sc->buffer.number,
 	0, "Number of display digits");
 
