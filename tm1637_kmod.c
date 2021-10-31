@@ -64,6 +64,9 @@
 #define TM1637_DISPLAY_OFF	0x80
 #define TM1637_DISPLAY_CTRL	0x88
 
+#define TM1637_8TH_COLON	0
+#define TM1637_8TH_DOT		1
+
 #define TM1637_LOCK_INIT(sc)	\
     mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
 #define TM1637_LOCK_DESTROY(sc)	\
@@ -116,6 +119,8 @@ struct tm1637_buf_t {
 struct tm1637_dispinfo {
     const uint8_t			 start_pos;
     const uint8_t			 number;
+    const uint8_t			 buffer_length;
+    const uint8_t			 type;
     const char				*descr;
 };
 
@@ -166,9 +171,9 @@ static void tm1637_display_off(struct tm1637_softc*);
 static void tm1637_set_brightness(struct tm1637_softc*, uint8_t);
 
 static const struct tm1637_dispinfo tm1637_disp_infos[] = {
-    { 0, 4, "TM1637 4 digits 7 segments display with colon" },
-    { 0, 4, "TM1637 4 digits 7 segments display with decimals" },
-    { 2, 6, "TM1637 6 digits 7 segments display with decimals" },
+    { 0, 4, 6,  TM1637_8TH_COLON, "TM1637 4 digits 7 segments display with colon" },
+    { 0, 4, 10, TM1637_8TH_DOT,   "TM1637 4 digits 7 segments display with decimals" },
+    { 2, 6, 14, TM1637_8TH_DOT,   "TM1637 6 digits 7 segments display with decimals" },
 };
 
 static const struct ofw_compat_data tm1637_compat_data[] = {
@@ -373,29 +378,12 @@ buffer_convert(struct tm1637_softc *sc)
     int i, p;
     struct tm1637_buf_t *buf = &sc->buffer;
 
-    if ((buf->number == 4) && (buf->length) == 5) {
-	i = 0;
-	p = buf->start_pos;;
-
-	do {
-	    if (i == 2) {
-		unsigned char c = buf->text[i++];
-
-		if (c == ':')
-		    buf->codes[1] |= 0x80;
-		else
-		if (c == ' ')
-		    buf->codes[1] &= 0x7f;
-		else
-		    return (-1);
-	    }
-
-	    if (digit_convert(&buf->codes[p], buf->text[i++]))
-		return (-1);
-	} while (++p < buf->number);
-    }
-    else
     if (buf->number == 6) {
+
+    /*
+     * tm1637 6 digits with decimals
+     */
+
 	i = buf->length;
 	p = buf->start_pos;
 
@@ -429,15 +417,79 @@ buffer_convert(struct tm1637_softc *sc)
 		    return (-1);
 	}
     }
-    else {
+    else
+    if (sc->info->type == TM1637_8TH_DOT) {
+
+    /*
+     * tm1637 4 digits with decimals
+     */
+
 	i = buf->length;
 	p = buf->number;
 
-	if (i <= 0)
-	    return (-1);
+	/* Reverse order for right aligned result */
+	while (i > 0) {
+	    unsigned char c = buf->text[--i];
+
+	    /* Set or clear a decimal dot for a previous digit */
+	    if ((c == ' ') || (c == '.')) {
+		if (i <= 0)
+		    return (-1);
+
+		if (digit_convert(&buf->codes[--p], buf->text[--i]) < 0)
+		    return (-1);
+
+		if (c == '.')
+		    buf->codes[p] |= 0x80;
+		else
+		if (c == ' ')
+		    buf->codes[p] &= 0x7f;
+	    }
+	    else {
+		if (digit_convert(&buf->codes[--p], c) < 0)
+		    return (-1);
+	    } // if ((c == ' ') || (c == '.'))
+
+	}
+    }
+    else
+    if (buf->length == 5) {
+
+    /*
+     * tm1637 4 digits with colon. Format: clock
+     */
+
+	i = 0;
+	p = buf->start_pos;
+
+	do {
+	    if (i == 2) {
+		unsigned char c = buf->text[i++];
+
+		if (c == ':')
+		    buf->codes[1] |= 0x80;
+		else
+		if (c == ' ')
+		    buf->codes[1] &= 0x7f;
+		else
+		    return (-1);
+	    }
+
+	    if (digit_convert(&buf->codes[p], buf->text[i++]))
+		return (-1);
+	} while (++p < buf->number);
+    }
+    else {
+
+    /*
+     * tm1637 4 digits with colon. Format: integer
+     */
+
+	i = buf->length;
+	p = buf->number;
 
 	/* Revers order for right aligned result */
-	while (i > 0)
+	while ((p > 0) && (i > 0))
 	    if (digit_convert(&buf->codes[--p], buf->text[--i]) < 0)
 		return (-1);
     }
@@ -1256,7 +1308,7 @@ tm1637_attach(device_t dev)
 		device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin );
 
     sc->buffer.codes = malloc(sc->buffer.number, M_TM1637COD, M_WAITOK | M_ZERO);
-    sc->buffer.text = malloc(sc->buffer.number + 2, M_TM1637BUF, M_WAITOK | M_ZERO);
+    sc->buffer.text = malloc(sc->info->buffer_length, M_TM1637BUF, M_WAITOK | M_ZERO);
 
     /* Create the tm1637 cdev. */
     unit = device_get_unit (dev);
