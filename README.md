@@ -34,18 +34,23 @@ You need a kernel source for compile the kld-module. I have the source tree
 as a nfs mounted filesystem to `/usr/src`. It may be also an usb-flash with
 it as the kernel sources are not often needed.
 
-You can uncomment the line with -DDEBUG in the `Makefile` before compilation
-to control how the driver processes strings, what it sends to `tm1637`.
-Compile and install the kernel driver:
+Run this commands from driver directory (If Your platform haven't DTS enabled
+You can skip the second line to keep `opt_platform.h` empty):
 ```shell
 % make depend
+% echo "#define FDT 1" > opt_platform.h
 % make
 % sudo make install
 ```
 
 ### With FDT-overlays
 
-Compile and install a fdt overlays You need it for declare `tm1637` device.
+Firstly, You need the driver compilled with the `opt_platform.h` file
+containing a string `#define FDT 1` ([See Installation](#installation)).
+Without this definition no fdt-specific code will be compilled into the
+driver.
+
+Compile and install an fdt-overlay You need for declare `tm1637` device.
 Choose a sample of overlay source suits your platform best and copy it
 with extension ```.dtso```.
 Edit the overlay source, for the a pins definition at least, build and
@@ -79,10 +84,13 @@ hint.tm1637.0.pin_list="26 29"
 Last two commented out variables declare the default order for the
 ```scl``` and ```sda``` pins in the ```pin_list``` pin numbers sequence.
 Uncomment them and change their values if it needed to change.
-For now the driver support next types of ```tm1637``` displays:
-- tm1637-4-colon;
-- tm1637-6-dots.
-Just ordered a ```tm1637-4-dots```specimen for third option.
+The driver support next types of ```tm1637``` displays:
+- `tm1637-4-colon` (and even simplier `tm1637`);
+- `tm1637-4-dots`;
+- `tm1637-6-dots`.
+
+I see no diffrerence right now between first two ones but device
+description.
 
 In both cases, for FDT overlays or hints, your device declaration changes
 will only be active after a system reboot. Then You can load the module:
@@ -90,26 +98,27 @@ will only be active after a system reboot. Then You can load the module:
 % kldload tm1637
 ```
 
-After loading the module a character device "/dev/tm1637" and a sysctl-tree
-branch "dev.tm1637.0" will be created. Right now the display is dark and
-empty as it contains all blanks w/out a colon.
+After loading the module a character device ```/dev/tm1637``` and a
+sysctl-tree branch "dev.tm1637.0" will be created. Right now the display
+is dark and empty as it contains all blanks w/out a colon or decimals.
 
 Now the display can be easy used from PHP or Python or anything alse.
 
 ## Usage
 
-You can change by write to a kernel variable:
-* `brightness` 0...7 digit, 0 is a darkest one. Can be set by any user;
-* `on` on ot off the display (brightness level keeps its value). Can be set by
-any user.
+For managing the display You can change following kernel variables:
+- `brightness` 0...7 digit, 0 is a darkest one. Can be set by any user;
+- `on` on ot off the display (brightness level keeps its value). Can be set
+by any user.
 
 ```shell
 % sysctl dev.tm1637.0.brightness=7
 % sysctl dev.tm1637.0.on=0
 ```
 
-You can send an up to five characters string of digits or an up to six coded
-characters string of a raw command to the display chip.
+You can send an up to `num+1` characters string of digits, a dot or a colon
+or an up to `num+2` coded characters string of a raw command to the display
+chip. Here `num` is a number of display digits.
 
 ### String of digits
 

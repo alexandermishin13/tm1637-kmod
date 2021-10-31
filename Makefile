@@ -15,7 +15,6 @@ SRCS+=	\
 	opt_platform.h \
 	fdt_pinctrl_if.h \
 
-CFLAGS+=  -I. -I${SRCTOP}/sys/dev/gpio/
 #CFLAGS+=  -DI2C_LIKE
 #CFLAGS+=  -DDEBUG
 

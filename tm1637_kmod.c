@@ -167,12 +167,14 @@ static void tm1637_set_brightness(struct tm1637_softc*, uint8_t);
 
 static const struct tm1637_dispinfo tm1637_disp_infos[] = {
     { 0, 4, "TM1637 4 digits 7 segments display with colon" },
+    { 0, 4, "TM1637 4 digits 7 segments display with decimals" },
     { 2, 6, "TM1637 6 digits 7 segments display with decimals" },
 };
 
 static const struct ofw_compat_data tm1637_compat_data[] = {
     {"tm1637-4-colon",		(uintptr_t)&tm1637_disp_infos[0]},
-    {"tm1637-6-dots",		(uintptr_t)&tm1637_disp_infos[1]},
+    {"tm1637-4-dots",		(uintptr_t)&tm1637_disp_infos[1]},
+    {"tm1637-6-dots",		(uintptr_t)&tm1637_disp_infos[2]},
     {"tm1637",			(uintptr_t)&tm1637_disp_infos[0]},
     {NULL,			(uintptr_t)NULL}
 };
