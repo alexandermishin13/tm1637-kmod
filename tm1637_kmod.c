@@ -110,14 +110,17 @@ MALLOC_DEFINE(M_TM1637COD, "tm1637codes", "Masks array for tm1637 display");
 
 struct tm1637_buf_t {
     uint8_t				 start_pos;
+    int8_t				 step;
     uint8_t				 number;
     uint8_t				 length;
     uint8_t				*codes;
+    uint8_t				 text_length;
     unsigned char			*text;
 };
 
 struct tm1637_dispinfo {
     const uint8_t			 start_pos;
+    const int8_t			 step;
     const uint8_t			 number;
     const uint8_t			 buffer_length;
     const uint8_t			 type;
@@ -171,9 +174,9 @@ static void tm1637_display_off(struct tm1637_softc*);
 static void tm1637_set_brightness(struct tm1637_softc*, uint8_t);
 
 static const struct tm1637_dispinfo tm1637_disp_infos[] = {
-    { 0, 4, 6,  TM1637_8TH_COLON, "TM1637 4 digits 7 segments display with colon" },
-    { 0, 4, 10, TM1637_8TH_DOT,   "TM1637 4 digits 7 segments display with decimals" },
-    { 2, 6, 14, TM1637_8TH_DOT,   "TM1637 6 digits 7 segments display with decimals" },
+    { 4,  1, 4, 6,  TM1637_8TH_COLON, "TM1637 4 digits 7 segments display with colon" },
+    { 4,  1, 4, 10, TM1637_8TH_DOT,   "TM1637 4 digits 7 segments display with decimals" },
+    { 2, -1, 6, 14, TM1637_8TH_DOT,   "TM1637 6 digits 7 segments display with decimals" },
 };
 
 static const struct ofw_compat_data tm1637_compat_data[] = {
@@ -354,7 +357,8 @@ digit_convert(u_char *tm1637_digit, const unsigned char c)
 {
     switch (c) {
     case '#':
-	break; // skip a digit position
+	*tm1637_digit &= 0x7f;
+	break;
     case ' ':
 	*tm1637_digit = CHR_SPACE;
 	break;
@@ -375,29 +379,29 @@ digit_convert(u_char *tm1637_digit, const unsigned char c)
 static int
 buffer_convert(struct tm1637_softc *sc)
 {
-    int i, p;
+    int8_t i, p;
     struct tm1637_buf_t *buf = &sc->buffer;
+    const struct tm1637_dispinfo *info = sc->info;
+    const int8_t number = info->number;
+    const int8_t step = info->step;
 
-    if (buf->number == 6) {
+    if (info->type == TM1637_8TH_DOT) {
 
     /*
-     * tm1637 6 digits with decimals
+     * tm1637 with decimals
      */
 
 	i = buf->length;
-	p = buf->start_pos;
+	p = info->start_pos;
 
-	if (i <= 0)
-	    return (-1);
-
-	/* Revers order for right aligned result */
+	/* Reverse order for right aligned result */
 	while (i > 0) {
-	    unsigned char c;
+	    unsigned char c = buf->text[--i];
 
-	    if (++p >= buf->number)
+	    p -= step;
+	    if (p >= number)
 		p = 0;
 
-	    c = buf->text[--i];
 	    if (c == '.') {
 		/* If a dot check for buffer is not empty,
 		 * get a number followed by the dot (backward, of course),
@@ -415,41 +419,6 @@ buffer_convert(struct tm1637_softc *sc)
 	    else
 		if (digit_convert(&buf->codes[p], c) < 0)
 		    return (-1);
-	}
-    }
-    else
-    if (sc->info->type == TM1637_8TH_DOT) {
-
-    /*
-     * tm1637 4 digits with decimals
-     */
-
-	i = buf->length;
-	p = buf->number;
-
-	/* Reverse order for right aligned result */
-	while (i > 0) {
-	    unsigned char c = buf->text[--i];
-
-	    /* Set or clear a decimal dot for a previous digit */
-	    if ((c == ' ') || (c == '.')) {
-		if (i <= 0)
-		    return (-1);
-
-		if (digit_convert(&buf->codes[--p], buf->text[--i]) < 0)
-		    return (-1);
-
-		if (c == '.')
-		    buf->codes[p] |= 0x80;
-		else
-		if (c == ' ')
-		    buf->codes[p] &= 0x7f;
-	    }
-	    else {
-		if (digit_convert(&buf->codes[--p], c) < 0)
-		    return (-1);
-	    } // if ((c == ' ') || (c == '.'))
-
 	}
     }
     else
@@ -479,20 +448,30 @@ buffer_convert(struct tm1637_softc *sc)
 		return (-1);
 	} while (++p < buf->number);
     }
-    else {
+    else
+    if(buf->length <= number) {
 
     /*
      * tm1637 4 digits with colon. Format: integer
      */
 
 	i = buf->length;
-	p = buf->number;
+	p = info->start_pos;
 
-	/* Revers order for right aligned result */
-	while ((p > 0) && (i > 0))
-	    if (digit_convert(&buf->codes[--p], buf->text[--i]) < 0)
+	/* Reverse order for right aligned result */
+	while (i > 0) {
+	    unsigned char c = buf->text[--i];
+
+	    p -= step;
+	    if (p >= number)
+		p = 0;
+
+	    if (digit_convert(&buf->codes[p], c) < 0)
 		return (-1);
+	}
     }
+    else
+	return (-1);
 
     return (0);
 }
@@ -1164,7 +1143,7 @@ tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
     size_t amount;
     off_t uio_offset_saved;
 
-    amount = MIN(uio->uio_resid, (sc->buffer.number + 2));
+    amount = MIN(uio->uio_resid, (sc->buffer.text_length));
     uio_offset_saved = uio->uio_offset;
     error = uiomove(sc->buffer.text, amount, uio);
     uio->uio_offset = uio_offset_saved;
@@ -1275,8 +1254,10 @@ tm1637_attach(device_t dev)
 
     sc->dev = dev;
     sc->node = ofw_bus_get_node(dev);
+    sc->buffer.step = sc->info->step;
     sc->buffer.number = sc->info->number;
     sc->buffer.start_pos = sc->info->start_pos;
+    sc->buffer.text_length = sc->info->buffer_length;
     sc->scl_low_timeout = DEFAULT_SCL_LOW_TIMEOUT;
 
     /* Acquire gpio pins from hints first */
