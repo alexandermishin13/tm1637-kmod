@@ -357,7 +357,7 @@ static int
 digit_convert(u_char *tm1637_digit, const unsigned char c)
 {
     switch (c) {
-    case '#':
+    case '#': // Skip the digit but clear a dot or a colon
 	*tm1637_digit &= 0x7f;
 	break;
     case ' ':
@@ -391,10 +391,19 @@ buffer_convert(struct tm1637_softc *sc)
 	/* tm1637 with decimals
 	 * Reverse order for right aligned result */
 	while (n-- > 0) {
-	    unsigned char c = buf->text[--i];
+	    unsigned char c;
 
 	    p = position[n];
 
+	    /* When the text buffer is cleared before the digits run out,
+	     * a leading space will be displayed.
+	     */
+	    if (i <= 0) {
+		buf->codes[p] = CHR_SPACE;
+		continue;
+	    }
+
+	    c = buf->text[--i];
 	    if (c == '.') {
 		/* If a dot check for buffer is not empty,
 		 * get a number followed by the dot (backward, of course),
@@ -409,6 +418,7 @@ buffer_convert(struct tm1637_softc *sc)
 	    else
 		if (digit_convert(&buf->codes[p], c) < 0)
 		    return (-1);
+
 	}
     }
     else
@@ -418,8 +428,14 @@ buffer_convert(struct tm1637_softc *sc)
 	while (n-- > 0) {
 	    p = position[n];
 
-	    if (digit_convert(&buf->codes[p], buf->text[--i]) < 0)
-		return (-1);
+	    /* When the text buffer is cleared before the digits run out,
+	     * a leading space will be displayed.
+	     */
+	    if (i <= 0)
+		buf->codes[p] = CHR_SPACE;
+	    else
+		if (digit_convert(&buf->codes[p], buf->text[--i]) < 0)
+		    return (-1);
 	}
     }
     else
@@ -431,7 +447,7 @@ buffer_convert(struct tm1637_softc *sc)
 	    p = position[n];
 
 	    /* Get a clockpoint and go for a digit before */
-	    if (i == 2)
+	    if (i == 3)
 		clockpoint = buf->text[--i];
 
 	    if (digit_convert(&buf->codes[p], buf->text[--i]) < 0)
@@ -448,7 +464,9 @@ buffer_convert(struct tm1637_softc *sc)
 	else
 	    return (-1);
     }
-    else
+
+    /* The text buffer must be empty now */
+    if (i > 0)
 	return (-1);
 
     return (0);
