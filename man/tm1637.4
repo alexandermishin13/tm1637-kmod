@@ -18,6 +18,8 @@ compatible strings :
 .It
 tm1637-4-colon
 .It
+tm1637-4-dots
+.It
 tm1637-6-dots
 .El
 .Sh DESCRIPTION
@@ -33,6 +35,64 @@ and GND. The device uses its own protocol for data exchange and does not comply
 with the
 .Xr iic 4
 standard.
+
+It accepts for display followed characters:
+.Bl -bullet -compact
+.It
+digits;
+.It
+spaces;
+.It
+hyphen signs;
+.It
+sharp signs;
+.It
+dots or a colon.
+.El
+
+The dot (.) or colon (:) does not actually occupy positions on the display,
+but are just extra segments of them.
+The sharp sign (#) is a placeholder. It can be used to leave a position
+intact, but clear its extra segment, such as a dot or colon.
+The displayed string will be padded with leading spaces to fill the display.
+
+.Ss By example:
+.Bd -literal
+% echo -n "12:34" > /dev/tm1637/0
+% echo -n "## ##" > /dev/tm1637/0
+% echo -n "12.3" > /dev/tm1637/0
+.Ed
+
+You can write a string of coded characters as a command. In this case, the
+driver gives you the ability to program the chip directly, using a sequence of
+control bytes, taking over the entire task of transferring data bits,
+including stop and start bits.
+
+The driver determines this mode by the very first character of the line, if it
+is not a digit, but a command, such as
+.Pa 0x40 , Pa 0x44 , Pa 0x80 , Pa 0x88-0x8f .
+
+.Ss By example:
+.Bd -literal
+% printf $'\\x80' > /dev/tm1637/0
+% printf $'\\x8b' > /dev/tm1637/0
+% printf $'\\x44\\xc1\\x86' > /dev/tm1637/0
+.Ed
+
+.Bl -bullet -compact
+.It
+First command turns the display off;
+.It
+Second one turns it on and set a brightness level to 3 (
+.Pa 0x8b
+=
+.Pa 0x88
+&
+.Pa 0x03
+);
+.It
+Third one lights the second position (0xc1 = 0xc0 & 0x01) segments to display
+.El
 .Sh SYSCTL VARIABLES
 The following variables are available to control the display via
 .Xr sysctl 8 :

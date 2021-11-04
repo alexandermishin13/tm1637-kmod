@@ -10,7 +10,8 @@ But even if you find one, it will not be easy to use in your project in
 languages other than c/c++. It is sad as the tm1637 display is a very
 simple to understand device. An idea was to make a kernel character device,
 suitable for writing strings to it, which would be displayed by it
-immediately. 
+immediately. There it is.
+
 As example, You can send:
 
 * `12:30` - 4 digits would be transferred by kernel to tm1637
@@ -89,9 +90,6 @@ The driver support next types of ```tm1637``` displays:
 - `tm1637-4-dots`;
 - `tm1637-6-dots`.
 
-I see no diffrerence right now between first two ones but device
-description.
-
 In both cases, for FDT overlays or hints, your device declaration changes
 will only be active after a system reboot. Then You can load the module:
 ```shell
@@ -128,16 +126,19 @@ a five characters (format, ##:##).
 % echo -n "12:30" > /dev/tm1637/0; sleep 1; echo -n "12 30" > /dev/tm1637
 ```
 Available symbols are:
-* digits [0..9];
-* minus sign;
-* space;
-* placeholder '#' for keep this position untouched;
-* ':' and ' ' in 3rd position sets or clears clockpoint;
-* Any other symbols leads to an error message.
+* digits ([`0..9`]);
+* hyphen (`-`);
+* space (` `);
+* placeholder (`#`) for keep this position untouched (but clears dots or colon
+after one);
+* dot (`.`) after digit, space or placeholder for decimal type of displays;
+* colon or space (`:` or ` `) in 3rd position to set or clear clockpoint for 
+clock type of displays;
 
-If at the 3rd position there is neither ':' nor ' ' (number format),
-then the clockpoint will be turned off.
-On the other hand, the clock format is strict and requires 5 characters:
+Any other symbols leads to an error message.
+The displayed string will be padded with leading spaces to fill the display. 
+
+The clock format is strict and requires 5 characters:
 a colon or space in the third position and 4 digits, spaces, minus signs
 or placeholders in other ones ('##:##').
 
@@ -146,19 +147,19 @@ sending of strings of coded characters formatted as `tm1637` chip commands.
 
 ### String of coded characters
 
-You can write up to six coded characters as a command. In this case, the driver
-gives you the ability to program the chip directly, using a sequence of control
-bytes, taking over the entire task of transferring data bits, including stop
-and start bits.
+You can write a string of coded characters as a command. In this case, the
+driver gives you the ability to program the chip directly, using a sequence of
+control bytes, taking over the entire task of transferring data bits,
+including stop and start bits.
 
 The driver determines this mode by the very first character of the line, if it
 is not a digit, but a command, such as 0x40,0x44,0x80,0x88-0x8f. 
 
 By example:
 ```shell
-% printf $‘\x80’ > /dev/tm1637/0
-% printf $‘\x8b’ > /dev/tm1637/0
-% printf $‘\x44\xc1\x86’ > /dev/tm1637/0
+% printf $'\x80' > /dev/tm1637/0
+% printf $'\x8b' > /dev/tm1637/0
+% printf $'\x44\xc1\x86' > /dev/tm1637/0
 ```
 * First command turns the display off;
 * Second one turns it on and set a brightness level to 3 (0x8b = 0x88 & 0x03);
