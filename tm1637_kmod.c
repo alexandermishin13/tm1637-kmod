@@ -50,6 +50,7 @@
 
 #include "include/dev/tm1637/tm1637.h"
 
+#define TM1637_DESC		"TM1637 %u digits 7 segments display with %s"
 #define TM1637_CDEV_NAME	"tm1637"
 #define TM1637_SCL_PROPERTY	"scl-gpios"
 #define TM1637_SDA_PROPERTY	"sda-gpios"
@@ -109,7 +110,6 @@ MALLOC_DEFINE(M_TM1637BUF, "tm1637buffer", "Buffer for tm1637 display");
 MALLOC_DEFINE(M_TM1637COD, "tm1637codes", "Masks array for tm1637 display");
 
 struct tm1637_buf_t {
-    uint8_t				 number;
     uint8_t				 length;
     uint8_t				*codes;
     uint8_t				 text_length;
@@ -121,7 +121,6 @@ struct tm1637_dispinfo {
     const uint8_t			*position;
     const uint8_t			 buffer_length;
     const uint8_t			 type;
-    const char				*descr;
 };
 
 struct tm1637_softc {
@@ -175,9 +174,9 @@ static const uint8_t dig4pos[] = { 0, 1, 2, 3 };
 static const uint8_t dig6pos[] = { 2, 1, 0, 5, 4, 3 };
 
 static const struct tm1637_dispinfo tm1637_disp_infos[] = {
-    {  4, dig4pos, 6,  TM1637_8TH_COLON, "TM1637 4 digits 7 segments display with colon" },
-    {  4, dig4pos, 10, TM1637_8TH_DOT,   "TM1637 4 digits 7 segments display with decimals" },
-    {  6, dig6pos, 14, TM1637_8TH_DOT,   "TM1637 6 digits 7 segments display with decimals" },
+    {  4, dig4pos, 6,  TM1637_8TH_COLON },
+    {  4, dig4pos, 10, TM1637_8TH_DOT },
+    {  6, dig6pos, 14, TM1637_8TH_DOT },
 };
 
 static const struct ofw_compat_data tm1637_compat_data[] = {
@@ -483,7 +482,7 @@ is_raw_command(struct tm1637_softc *sc)
     /* Send one byte at a fixed position */
     case TM1637_ADDRESS_FIXED:
 	if ((buf->length < 3) ||
-	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= buf->number))
+	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= sc->info->number))
 	    return (-1);
 
 	buf->codes[start] = buf->text[2];
@@ -492,11 +491,11 @@ is_raw_command(struct tm1637_softc *sc)
     /* Send up to 4 bytes at an autoincremented position */
     case TM1637_ADDRESS_AUTO:
 	if ((buf->length < 3) ||
-	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= buf->number))
+	   ((start = buf->text[1]^TM1637_ADDRESS_START) >= sc->info->number))
 	    return (-1);
 
 	tmp = start;
-	stop = MIN(buf->length-2, buf->number);
+	stop = MIN(buf->length-2, sc->info->number);
 	for (size_t i=2; tmp<stop; tmp++)
 	    buf->codes[tmp] = buf->text[i++];
 
@@ -880,7 +879,7 @@ static void
 tm1637_update_display(struct tm1637_softc *sc)
 {
     if(sc->on) {
-	tm1637_send_data(sc, 0, sc->buffer.number);
+	tm1637_send_data(sc, 0, sc->info->number);
 	/* Clear the flag if it is set */
 	if(sc->needupdate)
 	    sc->needupdate = false;
@@ -895,7 +894,7 @@ tm1637_update_display(struct tm1637_softc *sc)
 static void
 tm1637_clear_display(struct tm1637_softc *sc)
 {
-    size_t position = sc->buffer.number;
+    size_t position = sc->info->number;
 
     /* Display all blanks */
     while(position--)
@@ -903,7 +902,7 @@ tm1637_clear_display(struct tm1637_softc *sc)
 
     /* If display is off right now then mark it for update when it is on */
     if(sc->on)
-	tm1637_send_data(sc, 0, sc->buffer.number);
+	tm1637_send_data(sc, 0, sc->info->number);
     else
 	sc->needupdate = true;
 }
@@ -916,7 +915,7 @@ tm1637_display_on(struct tm1637_softc *sc)
 {
     if(!sc->on) {
 	sc->on = true;
-	tm1637_send_data(sc, 0, sc->buffer.number);
+	tm1637_send_data(sc, 0, sc->info->number);
     }
     /* Light the display anyway */
     tm1637_send_command(sc, TM1637_DISPLAY_CTRL|sc->brightness);
@@ -963,13 +962,13 @@ tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
     sc->buffer.codes[0] = char_code[t&0x0f];
     t = clock.tm_hour % 10;
     /* Four digits clock */
-    if (sc->buffer.number == 4) {
+    if (sc->info->number == 4) {
 	sc->buffer.codes[1] = char_code[t];
 	t = clock.tm_min / 10;
 	sc->buffer.codes[2] = char_code[t&0x0f];
     }
     else // Six digits decimals
-    if (sc->buffer.number == 6) {
+    if (sc->info->number == 6) {
 	sc->buffer.codes[5] = char_code[t];
 	t = clock.tm_min / 10;
 	sc->buffer.codes[4] = char_code[t&0x0f];
@@ -1152,7 +1151,7 @@ tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 	return (0);
 
     if (buffer_convert(sc) == 0) {
-	tm1637_send_data(sc, 0, sc->buffer.number);
+	tm1637_send_data(sc, 0, sc->info->number);
 	return (0);
     }
 
@@ -1200,10 +1199,13 @@ static int
 tm1637_probe(device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
+    char desc[50];
 
     sc->info = tm1637_find_dispinfo(dev);
     if (sc->info != NULL) {
-	device_set_desc(dev, sc->info->descr);
+	snprintf(desc, sizeof(desc), TM1637_DESC, sc->info->number,
+	    sc->info->type?"decimals":"colon");
+	device_set_desc_copy(dev, desc);
 #ifdef FDT
 	return (BUS_PROBE_DEFAULT);
 #else
@@ -1250,7 +1252,6 @@ tm1637_attach(device_t dev)
 
     sc->dev = dev;
     sc->node = ofw_bus_get_node(dev);
-    sc->buffer.number = sc->info->number;
     sc->buffer.text_length = sc->info->buffer_length;
     sc->scl_low_timeout = DEFAULT_SCL_LOW_TIMEOUT;
 
@@ -1282,7 +1283,7 @@ tm1637_attach(device_t dev)
 		device_get_nameunit(GPIO_GET_BUS(sc->sclpin->dev)), sc->sclpin->pin,
 		device_get_nameunit(GPIO_GET_BUS(sc->sdapin->dev)), sc->sdapin->pin );
 
-    sc->buffer.codes = malloc(sc->buffer.number, M_TM1637COD, M_WAITOK | M_ZERO);
+    sc->buffer.codes = malloc(sc->info->number, M_TM1637COD, M_WAITOK | M_ZERO);
     sc->buffer.text = malloc(sc->info->buffer_length, M_TM1637BUF, M_WAITOK | M_ZERO);
 
     /* Create the tm1637 cdev. */
@@ -1331,8 +1332,8 @@ tm1637_sysctl_register(struct tm1637_softc *sc)
 	0, "Signal change delay controlled by bus frequency, microseconds");
 
     SYSCTL_ADD_U8(ctx, tree, OID_AUTO,
-	"digits", CTLFLAG_RD, &sc->buffer.number,
-	0, "Number of display digits");
+	"digits", CTLFLAG_RD, SYSCTL_NULL_U8_PTR,
+	sc->info->number, "Number of display digits");
 
     SYSCTL_ADD_PROC(ctx, tree, OID_AUTO,
 	"brightness", CTLTYPE_U8 | CTLFLAG_RW | CTLFLAG_MPSAFE | CTLFLAG_ANYBODY, sc, 0,
