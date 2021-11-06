@@ -864,12 +864,16 @@ tm1637_send_data(struct tm1637_softc *sc, size_t pos, const size_t stop)
 static void
 tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
 {
-    if (clockpoint)
-	sc->buffer.codes[TM1637_COLON_POSITION - 1] |= 0x80;
-    else
-	sc->buffer.codes[TM1637_COLON_POSITION - 1] &= 0x7f;
+    const struct tm1637_dispinfo *info = sc->info;
+    const uint8_t *position = info->position;
+    const uint8_t p = position[TM1637_COLON_POSITION - 1];
 
-    tm1637_send_data1(sc, TM1637_COLON_POSITION - 1);
+    if (clockpoint)
+	sc->buffer.codes[p] |= 0x80;
+    else
+	sc->buffer.codes[p] &= 0x7f;
+
+    tm1637_send_data1(sc, p);
 }
 
 /*
@@ -956,29 +960,29 @@ tm1637_display_off(struct tm1637_softc *sc)
 static void
 tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
 {
+    const struct tm1637_dispinfo *info = sc->info;
+    const uint8_t *position = info->position;
+    uint8_t p;
     int t;
 
     t = clock.tm_hour / 10;
-    sc->buffer.codes[0] = char_code[t&0x0f];
+    p = position[0];
+    sc->buffer.codes[p] = char_code[t&0x0f];
     t = clock.tm_hour % 10;
-    /* Four digits clock */
-    if (sc->info->number == 4) {
-	sc->buffer.codes[1] = char_code[t];
-	t = clock.tm_min / 10;
-	sc->buffer.codes[2] = char_code[t&0x0f];
-    }
-    else // Six digits decimals
-    if (sc->info->number == 6) {
-	sc->buffer.codes[5] = char_code[t];
-	t = clock.tm_min / 10;
-	sc->buffer.codes[4] = char_code[t&0x0f];
-    }
+    p = position[1];
+    sc->buffer.codes[p] = char_code[t];
+    t = clock.tm_min / 10;
+    p = position[2];
+    sc->buffer.codes[p] = char_code[t&0x0f];
     t = clock.tm_min % 10;
-    sc->buffer.codes[3] = char_code[t];
+    p = position[3];
+    sc->buffer.codes[p] = char_code[t];
 
     /* Clockpoint */
-    if (clock.tm_colon)
-	sc->buffer.codes[TM1637_COLON_POSITION - 1] |= 0x80;
+    if (clock.tm_colon) {
+	p = position[TM1637_COLON_POSITION - 1];
+	sc->buffer.codes[p] |= 0x80;
+    }
 
     tm1637_update_display(sc);
 }
