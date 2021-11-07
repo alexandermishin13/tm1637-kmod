@@ -144,30 +144,31 @@ static int tm1637_probe(device_t);
 static int tm1637_attach(device_t);
 static int tm1637_detach(device_t);
 
-static void gpiobb_setsda(device_t, int);
-static void gpiobb_setscl(device_t, int);
-static int gpiobb_getsda(device_t);
-static int gpiobb_getscl(device_t);
-static int gpiobb_getack(device_t);
+static void gpiobb_setsda(const device_t, const bool);
+static void gpiobb_setscl(const device_t, const bool);
+static int gpiobb_getsda(const device_t);
+static int gpiobb_getscl(const device_t);
+static int gpiobb_getack(const device_t);
 
-static int gpiobb_start(device_t);
-static int gpiobb_stop(device_t);
+static int gpiobb_start(const device_t);
+static int gpiobb_stop(const device_t);
 
-static void tm1637_set_speed(struct tm1637_softc *, u_int);
+static void tm1637_set_speed(struct tm1637_softc *, const u_int);
 static void tm1637_sysctl_register(struct tm1637_softc *);
 
 static int digit_convert(u_char *, const unsigned char);
 static int buffer_convert(struct tm1637_softc *);
 static int is_raw_command(struct tm1637_softc *);
 
-static int tm1637_send_data1(struct tm1637_softc *, const size_t);
-static int tm1637_send_data(struct tm1637_softc *, size_t, const size_t);
+static int tm1637_send_command(struct tm1637_softc *, const uint8_t);
+static int tm1637_send_data1(struct tm1637_softc *, const uint8_t);
+static int tm1637_send_data(struct tm1637_softc *, size_t, const uint8_t);
 
 static int tm1637_write(struct cdev*, struct uio*, int ioflag);
 static int tm1637_ioctl(struct cdev*, u_long cmd, caddr_t data, int fflag, struct thread*);
 static void tm1637_display_on(struct tm1637_softc*);
 static void tm1637_display_off(struct tm1637_softc*);
-static void tm1637_set_brightness(struct tm1637_softc*, uint8_t);
+static void tm1637_set_brightness(struct tm1637_softc*, const uint8_t);
 
 /* Sequences of digit positions for a display type */
 static const uint8_t dig4pos[] = { 0, 1, 2, 3 };
@@ -379,9 +380,11 @@ digit_convert(u_char *tm1637_digit, const unsigned char c)
 static int
 buffer_convert(struct tm1637_softc *sc)
 {
-    struct tm1637_buf_t *buf = &sc->buffer;
     const struct tm1637_dispinfo *info = sc->info;
     const uint8_t *position = info->position;
+    const struct tm1637_buf_t *buf = &sc->buffer;
+    const unsigned char *text = buf->text;
+    uint8_t *codes = buf->codes;
     int8_t n = info->number;
     int8_t i = buf->length;
     int8_t p;
@@ -398,24 +401,24 @@ buffer_convert(struct tm1637_softc *sc)
 	     * a leading space will be displayed.
 	     */
 	    if (i <= 0) {
-		buf->codes[p] = CHR_SPACE;
+		codes[p] = CHR_SPACE;
 		continue;
 	    }
 
-	    c = buf->text[--i];
+	    c = text[--i];
 	    if (c == '.') {
 		/* If a dot check for buffer is not empty,
 		 * get a number followed by the dot (backward, of course),
 		 * and set its eighth bit to light the dot segment
 		 */
 		if ((i <= 0) ||
-		    (digit_convert(&buf->codes[p], buf->text[--i]) < 0))
+		    (digit_convert(&codes[p], text[--i]) < 0))
 			return (-1);
 		/* Set a dot segment */
-		buf->codes[p] |= 0x80;
+		codes[p] |= 0x80;
 	    }
 	    else
-		if (digit_convert(&buf->codes[p], c) < 0)
+		if (digit_convert(&codes[p], c) < 0)
 		    return (-1);
 
 	}
@@ -431,9 +434,9 @@ buffer_convert(struct tm1637_softc *sc)
 	     * a leading space will be displayed.
 	     */
 	    if (i <= 0)
-		buf->codes[p] = CHR_SPACE;
+		codes[p] = CHR_SPACE;
 	    else
-		if (digit_convert(&buf->codes[p], buf->text[--i]) < 0)
+		if (digit_convert(&codes[p], text[--i]) < 0)
 		    return (-1);
 	}
     }
@@ -447,19 +450,23 @@ buffer_convert(struct tm1637_softc *sc)
 
 	    /* Get a clockpoint and go for a digit before */
 	    if (i == 3)
-		clockpoint = buf->text[--i];
+		clockpoint = text[--i];
 
-	    if (digit_convert(&buf->codes[p], buf->text[--i]) < 0)
+	    if (digit_convert(&codes[p], text[--i]) < 0)
 		return (-1);
 	}
 
-	if (clockpoint == ':')
+	if (clockpoint == ':') {
 	    /* Set a dot segment */
-	    buf->codes[1] |= 0x80;
+	    p = position[TM1637_COLON_POSITION - 1];
+	    codes[p] |= 0x80;
+	}
 	else
-	if (clockpoint == ' ')
+	if (clockpoint == ' ') {
 	    /* Clear a dot segment */
-	    buf->codes[1] &= 0x7f;
+	    p = position[TM1637_COLON_POSITION - 1];
+	    codes[p] &= 0x7f;
+	}
 	else
 	    return (-1);
     }
@@ -519,13 +526,13 @@ is_raw_command(struct tm1637_softc *sc)
 }
 
 static void
-gpiobb_setsda(device_t dev, int val)
+gpiobb_setsda(const device_t dev, const bool sda)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
 
 #ifndef I2C_LIKE
     gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
-    gpio_pin_set_active(sc->sdapin, val);
+    gpio_pin_set_active(sc->sdapin, sda);
 #else
     if (val) {
 	gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
@@ -537,13 +544,13 @@ gpiobb_setsda(device_t dev, int val)
 }
 
 static void
-gpiobb_setscl(device_t dev, int val)
+gpiobb_setscl(const device_t dev, const bool scl)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
 
 #ifndef I2C_LIKE
     gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
-    gpio_pin_set_active(sc->sclpin, val);
+    gpio_pin_set_active(sc->sclpin, scl);
 #else
     if (val) {
 	gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
@@ -555,7 +562,7 @@ gpiobb_setscl(device_t dev, int val)
 }
 
 static int
-gpiobb_getsda(device_t dev)
+gpiobb_getsda(const device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
     bool val;
@@ -566,7 +573,7 @@ gpiobb_getsda(device_t dev)
 }
 
 static int
-gpiobb_getscl(device_t dev)
+gpiobb_getscl(const device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
     bool val;
@@ -577,7 +584,7 @@ gpiobb_getscl(device_t dev)
 }
 
 static int
-gpiobb_waitforscl(device_t dev)
+gpiobb_waitforscl(const device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
     sbintime_t fast_timeout;
@@ -608,7 +615,7 @@ gpiobb_waitforscl(device_t dev)
 
 /* Start the high phase of the clock. */
 static int
-gpiobb_clockin(device_t dev, int sda)
+gpiobb_clockin(const device_t dev, const bool sda)
 {
     /*
      * Precondition: SCL is low.
@@ -632,7 +639,7 @@ gpiobb_clockin(device_t dev, int sda)
  * as nothing interesting happens during it anyway.
  */
 static void
-gpiobb_clockout(device_t dev)
+gpiobb_clockout(const device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
 
@@ -646,7 +653,7 @@ gpiobb_clockout(device_t dev)
 }
 
 static int
-gpiobb_sendbit(device_t dev, int bit)
+gpiobb_sendbit(const device_t dev, const bool bit)
 {
 #ifdef I2C_LIKE
     struct tm1637_softc *sc = device_get_softc(dev);
@@ -668,7 +675,7 @@ gpiobb_sendbit(device_t dev, int bit)
  * Start command or data transmission
  */
 static int
-gpiobb_start(device_t dev)
+gpiobb_start(const device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
 
@@ -705,7 +712,7 @@ gpiobb_start(device_t dev)
  * Stop command or data transmission
  */
 static int
-gpiobb_stop(device_t dev)
+gpiobb_stop(const device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
     int err = 0;
@@ -727,7 +734,7 @@ gpiobb_stop(device_t dev)
 }
 
 static int
-gpiobb_getack(device_t dev)
+gpiobb_getack(const device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
     int noack, err;
@@ -762,9 +769,10 @@ gpiobb_getack(device_t dev)
  * Send a byte of information w/ ack checking
  */
 static int
-tm1637_gpio_sendbyte(device_t dev, uint8_t data)
+tm1637_gpio_sendbyte(const device_t dev, const uint8_t data)
 {
-    int err, i;
+    int err;
+    uint8_t i;
 
     // LSB first
     for(i=0; i<=7; i++) {
@@ -783,9 +791,9 @@ tm1637_gpio_sendbyte(device_t dev, uint8_t data)
  * Returns zero on success
  */
 static int
-tm1637_send_command(struct tm1637_softc *sc, uint8_t cmd)
+tm1637_send_command(struct tm1637_softc *sc, const uint8_t cmd)
 {
-    device_t dev = sc->dev;
+    const device_t dev = sc->dev;
     int err;
 
     TM1637_LOCK(sc);
@@ -804,11 +812,11 @@ tm1637_send_command(struct tm1637_softc *sc, uint8_t cmd)
  * Returns zero on success
  */
 static int
-tm1637_send_data1(struct tm1637_softc *sc, const size_t pos)
+tm1637_send_data1(struct tm1637_softc *sc, const uint8_t pos)
 {
-	device_t dev = sc->dev;
-	uint8_t addr = TM1637_ADDRESS_START + pos;
-	uint8_t data = sc->buffer.codes[pos];
+	const device_t dev = sc->dev;
+	const uint8_t addr = TM1637_ADDRESS_START + pos;
+	const uint8_t data = sc->buffer.codes[pos];
 
 	if (sc->on) {
 		TM1637_LOCK(sc);
@@ -833,11 +841,11 @@ tm1637_send_data1(struct tm1637_softc *sc, const size_t pos)
  * Returns zero on success
  */
 static int
-tm1637_send_data(struct tm1637_softc *sc, size_t pos, const size_t stop)
+tm1637_send_data(struct tm1637_softc *sc, size_t pos, const uint8_t stop)
 {
-	device_t dev = sc->dev;
-	uint8_t addr = TM1637_ADDRESS_START + pos;
-	uint8_t *codes = &sc->buffer.codes[0];
+	const device_t dev = sc->dev;
+	const uint8_t addr = TM1637_ADDRESS_START + pos;
+	const uint8_t *codes = sc->buffer.codes;
 
 	if (sc->on) {
 		TM1637_LOCK(sc);
@@ -848,8 +856,8 @@ tm1637_send_data(struct tm1637_softc *sc, size_t pos, const size_t stop)
 
 		gpiobb_start(dev);
 		tm1637_gpio_sendbyte(dev, addr);
-		for( ;pos < stop; pos++)
-			tm1637_gpio_sendbyte(dev, codes[pos]);
+		while(pos < stop)
+			tm1637_gpio_sendbyte(dev, codes[pos++]);
 		gpiobb_stop(dev);
 
 		TM1637_UNLOCK(sc);
@@ -862,11 +870,9 @@ tm1637_send_data(struct tm1637_softc *sc, size_t pos, const size_t stop)
  * Display or clear a clockpoint
  */
 static void
-tm1637_display_clockpoint(struct tm1637_softc *sc, bool clockpoint)
+tm1637_display_clockpoint(struct tm1637_softc *sc, const bool clockpoint)
 {
-    const struct tm1637_dispinfo *info = sc->info;
-    const uint8_t *position = info->position;
-    const uint8_t p = position[TM1637_COLON_POSITION - 1];
+    const uint8_t p = sc->info->position[TM1637_COLON_POSITION - 1];
 
     if (clockpoint)
 	sc->buffer.codes[p] |= 0x80;
@@ -898,11 +904,11 @@ tm1637_update_display(struct tm1637_softc *sc)
 static void
 tm1637_clear_display(struct tm1637_softc *sc)
 {
-    size_t position = sc->info->number;
+    uint8_t position = sc->info->number;
 
     /* Display all blanks */
-    while(position--)
-	sc->buffer.codes[position] = CHR_SPACE;
+    while(position > 0)
+	sc->buffer.codes[--position] = CHR_SPACE;
 
     /* If display is off right now then mark it for update when it is on */
     if(sc->on)
@@ -929,7 +935,7 @@ tm1637_display_on(struct tm1637_softc *sc)
  * Sets a display on with a brightness value as parameter
  */
 static void
-tm1637_set_brightness(struct tm1637_softc *sc, uint8_t brightness)
+tm1637_set_brightness(struct tm1637_softc *sc, const uint8_t brightness)
 {
     /* If brightness level is correct */
     if (brightness <= BRIGHT_BRIGHTEST) {
@@ -960,28 +966,28 @@ tm1637_display_off(struct tm1637_softc *sc)
 static void
 tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
 {
-    const struct tm1637_dispinfo *info = sc->info;
-    const uint8_t *position = info->position;
+    const uint8_t *position = sc->info->position;
+    uint8_t *codes = sc->buffer.codes;
     uint8_t p;
-    int t;
+    uint8_t t;
 
     t = clock.tm_hour / 10;
     p = position[0];
-    sc->buffer.codes[p] = char_code[t&0x0f];
+    codes[p] = char_code[t&0x0f];
     t = clock.tm_hour % 10;
     p = position[1];
-    sc->buffer.codes[p] = char_code[t];
+    codes[p] = char_code[t];
     t = clock.tm_min / 10;
     p = position[2];
-    sc->buffer.codes[p] = char_code[t&0x0f];
+    codes[p] = char_code[t&0x0f];
     t = clock.tm_min % 10;
     p = position[3];
-    sc->buffer.codes[p] = char_code[t];
+    codes[p] = char_code[t];
 
     /* Clockpoint */
     if (clock.tm_colon) {
 	p = position[TM1637_COLON_POSITION - 1];
-	sc->buffer.codes[p] |= 0x80;
+	codes[p] |= 0x80;
     }
 
     tm1637_update_display(sc);
@@ -1163,7 +1169,7 @@ tm1637_write(struct cdev *cdev, struct uio *uio, int ioflag __unused)
 }
 
 static const struct tm1637_dispinfo *
-tm1637_find_dispinfo(device_t dev)
+tm1637_find_dispinfo(const device_t dev)
 {
     const struct ofw_compat_data *cdata;
     const char *disptype;
@@ -1350,8 +1356,8 @@ tm1637_sysctl_register(struct tm1637_softc *sc)
 
 /* Set bus speed in Hz */
 static void
-tm1637_set_speed(struct tm1637_softc *sc, u_int busfreq)
+tm1637_set_speed(struct tm1637_softc *sc, const u_int busfreq)
 {
-    u_int period = 1000000 / 2 / busfreq;	/* Hz -> uS */
+    const u_int period = 1000000 / 2 / busfreq;	/* Hz -> uS */
     sc->udelay = MAX(period, 1);
 }
