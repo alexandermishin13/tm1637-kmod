@@ -12,20 +12,32 @@ simple to understand device. An idea was to make a kernel character device,
 suitable for writing strings to it, which would be displayed by it
 immediately. There it is.
 
-As example, You can send:
+The kernel driver can operate with a three type of displays:
+- TM1637 4 digit 7 segment display with colon;
+- TM1637 4 digit 7 segment display with decimals;
+- TM1637 6 digit 7 segment display with decimals.
 
-* `12:30` - 4 digits would be transferred by kernel to tm1637
-* `12 31` - Only "231" would be tranferred. As colon is a part of second
+As example, You can send to a display with a clocklike type:
+
+- `12:30` - 4 digits would be transferred by kernel to tm1637
+- `12 31` - Only "231" would be tranferred. As colon is a part of second
 digit (right now is "2") and colon is changed, then second digit is also in
 a changed digits list;
-* `12 31` or `1231` - No numbers will be transferred at all, since neither
+- `12 31` or `1231` - No numbers will be transferred at all, since neither
 digits nor colon not changed
-* `12:31` - Only second digit (see above) will be transferred now;
-* `## ##` - Only second digit again, but even faster than previous one as no
+- `12:31` - Only second digit (see above) will be transferred now;
+- `## ##` - Only second digit again, but even faster than previous one as no
 other digits compares would be made at all;
-* `  :  ` or ` ` - In 2nd case trailing spaces will be added;
-* `--:--` or `-- --` - It is an also possible combination (for a start
+- `  :  ` or ` ` - In 2nd case trailing spaces will be added;
+- `--:--` or `-- --` - It is an also possible combination (for a start
 decoration).
+
+For a specimen with decimals, all the same, but instead a colon You can
+place dots, by one after any of digits:
+
+- `3.14`;
+- `#.##2`;
+- `01.01.22` for a 6 digit one.
 
 Use `echo -n` for ommit a trailing `\n` character.
 

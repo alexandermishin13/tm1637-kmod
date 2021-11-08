@@ -50,7 +50,7 @@
 
 #include "include/dev/tm1637/tm1637.h"
 
-#define TM1637_DESC		"TM1637 %u digits 7 segments display with %s"
+#define TM1637_DESC		"TM1637 %u digit 7 segment display with %s"
 #define TM1637_CDEV_NAME	"tm1637"
 #define TM1637_SCL_PROPERTY	"scl-gpios"
 #define TM1637_SDA_PROPERTY	"sda-gpios"
@@ -1209,7 +1209,7 @@ static int
 tm1637_probe(device_t dev)
 {
     struct tm1637_softc *sc = device_get_softc(dev);
-    char desc[50];
+    char desc[48];
 
     sc->info = tm1637_find_dispinfo(dev);
     if (sc->info != NULL) {
