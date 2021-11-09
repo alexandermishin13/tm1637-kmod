@@ -449,7 +449,7 @@ buffer_convert(struct tm1637_softc *sc)
 	    p = position[n];
 
 	    /* Get a clockpoint and go for a digit before */
-	    if (i == 3)
+	    if (i == TM1637_COLON_POSITION + 1)
 		clockpoint = text[--i];
 
 	    if (digit_convert(&codes[p], text[--i]) < 0)
@@ -968,8 +968,7 @@ tm1637_set_clock(struct tm1637_softc *sc, struct tm1637_clock_t clock)
 {
     const uint8_t *position = sc->info->position;
     uint8_t *codes = sc->buffer.codes;
-    uint8_t p;
-    uint8_t t;
+    uint8_t p, t;
 
     t = clock.tm_hour / 10;
     p = position[0];
