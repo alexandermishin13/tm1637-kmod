@@ -34,7 +34,7 @@
 #define BRIGHT_TYPICAL			2
 #define BRIGHT_BRIGHTEST		7
 
-#define	TM1637_COLON_POSITION		-2 // position (last - 2)
+#define	TM1637_COLON_POSITION		2 // position of a digit with a colon
 
 struct tm1637_clock_t {
     int tm_min;
