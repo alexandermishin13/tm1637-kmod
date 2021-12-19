@@ -442,27 +442,26 @@ buffer_convert(struct tm1637_softc *sc)
     }
     else
     if (buf->length == 5) {
-	unsigned char clockpoint;
 	/* tm1637 4 digits with colon. Format: clock
 	 * Reverse order for right aligned result */
-	while (n-- > 0) {
+	while (i--, n-- > 0) {
 	    p = position[n];
 
-	    /* Get a clockpoint and go for a digit before */
+	    /* Skip a clockpoint position */
 	    if (i == TM1637_COLON_POSITION + 1)
-		clockpoint = text[--i];
+		i--;
 
-	    if (digit_convert(&codes[p], text[--i]) < 0)
+	    if (digit_convert(&codes[p], text[i]) < 0)
 		return (-1);
 	}
 
-	if (clockpoint == ':') {
+	if (text[TM1637_COLON_POSITION] == ':') {
 	    /* Set a dot segment */
 	    p = position[TM1637_COLON_POSITION - 1];
 	    codes[p] |= 0x80;
 	}
 	else
-	if (clockpoint == ' ') {
+	if (text[TM1637_COLON_POSITION] == ' ') {
 	    /* Clear a dot segment */
 	    p = position[TM1637_COLON_POSITION - 1];
 	    codes[p] &= 0x7f;
