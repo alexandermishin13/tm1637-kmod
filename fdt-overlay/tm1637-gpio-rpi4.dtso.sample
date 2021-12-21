@@ -1,0 +1,34 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711";
+};
+
+&gpio {
+    tm1637_pins: tm1637_pins {
+	brcm,pins = "GPIO20", "GPIO21"; // GPIO20, GPIO21
+	brcm,function = "GPIO out"; // out (initially)
+	brcm,pull = "none";
+    };
+};
+
+&{/soc} {
+    tm1637@0 {
+	compatible = "tm1637-4-colon";
+	pinctrl-names = "default";
+	pinctrl-0 = <&tm1637_pins>;
+	gpios = <&gpio 20 0 /* scl */
+		 &gpio 21 0 /* sda */
+		>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	scl = <0>; // GPIO20 (38)
+	sda = <1>; // GPIO21 (40)
+
+	/* From 0 to 7. 0 is a darkest */
+	default-brightness-level = <1>;
+
+	status = "okay";
+    };
+};
