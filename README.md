@@ -247,7 +247,7 @@ Do not know yet.
 
 ## Status
 
-The driver is tested on Orange Pi PC and Raspberry Pi 2.
+The driver is tested on Orange Pi PC and Zero and Raspberry Pi 2b and 4b.
 
 ## A couple of words
 
