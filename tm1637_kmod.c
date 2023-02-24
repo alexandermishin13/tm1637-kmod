@@ -29,13 +29,13 @@
 //#define FDT
 
 #include <sys/types.h>
+#include <sys/param.h>  /* defines used in kernel.h */
 #include <sys/module.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/systm.h>  /* uprintf */
 #include <sys/sysctl.h>
 #include <sys/conf.h>   /* cdevsw struct */
-#include <sys/param.h>  /* defines used in kernel.h */
 #include <sys/kernel.h> /* types used in module initialization */
 #include <sys/bus.h>
 #include <sys/uio.h>    /* uio struct */
@@ -69,13 +69,13 @@
 #define TM1637_8TH_DOT		1
 
 #define TM1637_LOCK_INIT(sc)	\
-    mtx_init(&(sc)->lock, "tm1637 mtx", NULL, MTX_DEF)
+    mtx_init(&(sc)->mtx, "tm1637_mtx", NULL, MTX_DEF)
 #define TM1637_LOCK_DESTROY(sc)	\
-    mtx_destroy(&(sc)->lock)
+    mtx_destroy(&(sc)->mtx)
 #define TM1637_LOCK(sc)		\
-    mtx_lock(&(sc)->lock)
+    mtx_lock(&(sc)->mtx)
 #define TM1637_UNLOCK(sc)	\
-    mtx_unlock(&(sc)->lock)
+    mtx_unlock(&(sc)->mtx)
 
 #define IICBB_DEBUG
 #ifdef IICBB_DEBUG
@@ -135,7 +135,7 @@ struct tm1637_softc {
     struct tm1637_buf_t			 buffer;
     u_int				 udelay; /* signal toggle delay in usec */
     u_int				 scl_low_timeout;
-    struct mtx				 lock;
+    struct mtx				 mtx;
     const struct tm1637_dispinfo	*info;
     struct cdev				*cdev;
 };
@@ -533,7 +533,7 @@ gpiobb_setsda(const device_t dev, const bool sda)
     gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
     gpio_pin_set_active(sc->sdapin, sda);
 #else
-    if (val) {
+    if (sda) {
 	gpio_pin_setflags(sc->sdapin, GPIO_PIN_INPUT);
     } else {
 	gpio_pin_setflags(sc->sdapin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
@@ -551,7 +551,7 @@ gpiobb_setscl(const device_t dev, const bool scl)
     gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
     gpio_pin_set_active(sc->sclpin, scl);
 #else
-    if (val) {
+    if (scl) {
 	gpio_pin_setflags(sc->sclpin, GPIO_PIN_INPUT);
     } else {
 	gpio_pin_setflags(sc->sclpin, GPIO_PIN_OUTPUT|GPIO_PIN_OPENDRAIN);
@@ -1116,6 +1116,14 @@ static int
 tm1637_open(struct cdev *cdev, int oflags __unused, int devtype __unused,
     struct thread *td __unused)
 {
+    struct tm1637_softc *sc = cdev->si_drv1;
+
+    /* We can't be unloaded while open, so mark ourselves BUSY. */
+    TM1637_LOCK(sc);
+    if (device_get_state(sc->dev) < DS_BUSY) {
+	device_busy(sc->dev);
+    }
+    TM1637_UNLOCK(sc);
 
 #ifdef DEBUG
     uprintf("Opening device \"%s\".\n", tm1637_cdevsw.d_name);
@@ -1128,6 +1136,15 @@ static int
 tm1637_close(struct cdev *cdev __unused, int fflag __unused, int devtype __unused,
     struct thread *td __unused)
 {
+    struct tm1637_softc *sc = cdev->si_drv1;
+
+    /*
+     * Un-busy on last close. We rely on the vfs counting stuff to only call
+     * this routine on last-close, so we don't need any open-count logic.
+     */
+    TM1637_LOCK(sc);
+    device_unbusy(sc->dev);
+    TM1637_UNLOCK(sc);
 
 #ifdef DEBUG
     uprintf("Closing device \"%s\".\n", tm1637_cdevsw.d_name);

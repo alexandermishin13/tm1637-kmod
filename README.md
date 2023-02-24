@@ -51,7 +51,7 @@ Run this commands from driver directory (If Your platform haven't DTS enabled
 You can skip the second line to keep `opt_platform.h` empty):
 ```shell
 % make depend
-% echo "#define FDT 1" > opt_platform.h
+% echo "#define FDT 1" >> opt_platform.h
 % make
 % sudo make install
 ```
